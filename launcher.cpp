@@ -96,6 +96,46 @@ std::string w8utf(const std::wstring &w) {
     return s;
 }
 
+void save_config() {
+    wchar_t path[MAX_PATH];
+    GetModuleFileNameW(NULL, path, MAX_PATH);
+    std::wstring wp(path);
+    size_t pos = wp.find_last_of(L'\\');
+    std::wstring cfg_path = wp.substr(0, pos + 1) + L"config.ini";
+    char cpath[MAX_PATH];
+    WideCharToMultiByte(CP_UTF8, 0, cfg_path.c_str(), -1, cpath, MAX_PATH, NULL, NULL);
+
+    wchar_t wname[128], wsys[4096];
+    GetWindowTextW(g_name_edit, wname, 128);
+    GetWindowTextW(g_sysedit, wsys, 4096);
+
+    wchar_t model[256] = L"";
+    int sel = SendMessageW(g_combo, CB_GETCURSEL, 0, 0);
+    if (sel != CB_ERR) SendMessageW(g_combo, CB_GETLBTEXT, sel, (LPARAM)model);
+
+    FILE *f = fopen(cpath, "w");
+    if (!f) return;
+    fprintf(f, "[general]\n");
+    char mb[512];
+    WideCharToMultiByte(CP_UTF8, 0, wname, -1, mb, 512, NULL, NULL);
+    fprintf(f, "name=%s\n", mb);
+    WideCharToMultiByte(CP_UTF8, 0, model, -1, mb, 512, NULL, NULL);
+    fprintf(f, "model=%s\n", mb);
+    fprintf(f, "temperature=%.2f\n", g_temp);
+
+    std::string sys8 = w8utf(wsys);
+    std::string escaped;
+    for (char c : sys8) {
+        if (c == '\n') escaped += "\\n";
+        else if (c == '\r') continue;
+        else if (c == '\t') escaped += "\\t";
+        else if (c == '\\') escaped += "\\\\";
+        else escaped += c;
+    }
+    fprintf(f, "system_prompt=%s\n", escaped.c_str());
+    fclose(f);
+}
+
 std::string esc_json(const std::string &s) {
     std::string o;
     for (char c : s) {
@@ -433,6 +473,50 @@ void do_auto_send(HWND hwnd) {
 LRESULT CALLBACK WndProc(HWND w, UINT m, WPARAM wp, LPARAM lp) {
     switch (m) {
     case WM_CREATE: {
+        wchar_t path[MAX_PATH];
+        GetModuleFileNameW(NULL, path, MAX_PATH);
+        std::wstring wp2(path);
+        size_t pos = wp2.find_last_of(L'\\');
+        std::wstring cfg_path = wp2.substr(0, pos + 1) + L"config.ini";
+        wchar_t ws_name[128] = L"", ws_sys[4096] = L"", ws_model[256] = L"";
+        double ws_temp = 0.7;
+        {
+            char cpath[MAX_PATH];
+            WideCharToMultiByte(CP_UTF8, 0, cfg_path.c_str(), -1, cpath, MAX_PATH, NULL, NULL);
+            char buf[8192] = {0};
+            FILE *f = fopen(cpath, "r");
+            if (f) { fread(buf, 1, 8191, f); fclose(f); }
+            std::string content = buf;
+            auto extract = [&](const std::string &key) -> std::string {
+                size_t p = content.find(key + "=");
+                if (p == std::string::npos) return "";
+                p += key.length() + 1;
+                size_t e = content.find_first_of("\r\n", p);
+                if (e == std::string::npos) e = content.length();
+                return content.substr(p, e - p);
+            };
+            std::string v;
+            v = extract("name"); if (!v.empty()) { std::wstring t = utf8w(v); wcscpy(ws_name, t.c_str()); }
+            v = extract("model"); if (!v.empty()) { std::wstring t = utf8w(v); wcscpy(ws_model, t.c_str()); }
+            v = extract("temperature"); if (!v.empty()) ws_temp = atof(v.c_str());
+            v = extract("system_prompt");
+            if (!v.empty()) {
+                std::string decoded;
+                for (size_t i = 0; i < v.length(); i++) {
+                    if (v[i] == '\\' && i + 1 < v.length()) {
+                        if (v[i+1] == 'n') { decoded += '\n'; i++; }
+                        else if (v[i+1] == 'r') { i++; }
+                        else if (v[i+1] == 't') { decoded += '\t'; i++; }
+                        else if (v[i+1] == '\\') { decoded += '\\'; i++; }
+                        else decoded += v[i];
+                    } else decoded += v[i];
+                }
+                std::wstring t = utf8w(decoded); wcscpy(ws_sys, t.c_str());
+            }
+        }
+
+        g_temp = ws_temp;
+
         g_font = CreateFontW(16, 0, 0, 0, FW_NORMAL, 0, 0, 0,
             DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
         HWND h;
@@ -554,6 +638,28 @@ LRESULT CALLBACK WndProc(HWND w, UINT m, WPARAM wp, LPARAM lp) {
         Shell_NotifyIconW(NIM_ADD, &g_nid);
 
         refresh_models();
+
+        if (ws_name[0]) SetWindowTextW(g_name_edit, ws_name);
+        if (ws_sys[0]) SetWindowTextW(g_sysedit, ws_sys);
+        if (ws_temp > 0) {
+            int pos = (int)(ws_temp * 10);
+            SendMessageW(g_slider, TBM_SETPOS, TRUE, pos);
+            wchar_t ts[8];
+            swprintf(ts, 8, L"%.1f", ws_temp);
+            SetWindowTextW(g_tempval, ts);
+        }
+        if (ws_model[0]) {
+            int cnt = (int)SendMessageW(g_combo, CB_GETCOUNT, 0, 0);
+            for (int i = 0; i < cnt; i++) {
+                wchar_t item[256];
+                SendMessageW(g_combo, CB_GETLBTEXT, i, (LPARAM)item);
+                if (_wcsicmp(item, ws_model) == 0) {
+                    SendMessageW(g_combo, CB_SETCURSEL, i, 0);
+                    break;
+                }
+            }
+        }
+
         PostMessageW(w, WM_SETFOCUS, 0, 0);
         break;
     }
@@ -754,6 +860,7 @@ LRESULT CALLBACK WndProc(HWND w, UINT m, WPARAM wp, LPARAM lp) {
         return 0;
 
     case WM_DESTROY:
+        save_config();
         KillTimer(w, ID_AUTO_TIMER);
         Shell_NotifyIconW(NIM_DELETE, &g_nid);
         DeleteObject(g_font);
