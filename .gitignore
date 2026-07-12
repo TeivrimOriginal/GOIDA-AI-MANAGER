@@ -1,0 +1,15 @@
+# Binaries
+*.exe
+*.o
+*.obj
+
+# Weights
+*.bin
+*_weights.txt
+
+# Logs
+*_log.txt
+
+# Config
+*.ini
+*.json
