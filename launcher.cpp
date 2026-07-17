@@ -1,4 +1,4 @@
-#define WIN32_LEAN_AND_MEAN
+﻿#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -9,78 +9,114 @@
 #include <string.h>
 #include <vector>
 #include <string>
+#include <map>
 #include <ctime>
+#include <algorithm>
 
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "shell32.lib")
 
-enum { IDC_COMBO=100, IDC_INPUT, IDC_SEND, IDC_STOP, IDC_CLRCHAT,
-       IDC_SYSEDIT, IDC_DOWNEDIT, IDC_PULL, IDC_SLIDER,
-       IDC_CHAT, IDC_STATUS, IDC_TEMPVAL, IDC_AUTO, IDC_AUTOSLIDER, IDC_AUTOVAL,
-       IDC_NAME, IDC_TRAINGEN, IDC_MODELSINFO, IDC_TRAINCYCLES,
-       IDC_TRAININ, IDC_TRAINOUT, IDC_TRAINRUN, IDC_TRAINLIST };
+enum {
+    // Login
+    IDC_LOGIN_BTN=200, IDC_LOGIN_NAME,
+    // Navigation
+    IDC_NAV_BACK, IDC_NAV_TITLE, IDC_NAV_USER,
+    // Templates page
+    IDC_TMPL_LIST, IDC_TMPL_ADD, IDC_TMPL_DEL, IDC_TMPL_EDIT, IDC_TMPL_START, IDC_TMPL_MODELS,
+    // Editor
+    IDC_ED_NAME, IDC_ED_MODEL, IDC_ED_TEMP_SLIDER, IDC_ED_TEMP_VAL, IDC_ED_SYS,
+    IDC_ED_IN, IDC_ED_OUT, IDC_ED_CYCLES, IDC_ED_ADD, IDC_ED_LIST, IDC_ED_SAVE, IDC_ED_BACK,
+    IDC_ED_GEN, IDC_ED_PULL, IDC_ED_PULL_NAME, IDC_ED_MODEL_REFRESH, IDC_STATUS,
+    // Models catalog
+    IDC_MODELS_CATALOG, IDC_MODELS_INSTALL, IDC_MODELS_LIST, IDC_MODELS_BACK, IDC_MODELS_PROGRESS,
+    // Femboy settings
+    IDC_FEMBOY_NAME, IDC_FEMBOY_SAVE, IDC_FEMBOY_MEM_VIEW,
+    // Memory
+    IDC_MEM_LIST, IDC_MEM_ADD, IDC_MEM_DEL, IDC_MEM_TAG, IDC_MEM_KEY, IDC_MEM_VAL, IDC_MEM_SAVE, IDC_MEM_CLEAR, IDC_MEM_BACK, IDC_MEM_FILTER
+};
 
 #define OLLAMA_HOST "127.0.0.1"
 #define OLLAMA_PORT 11434
-#define WM_TOK   (WM_USER+100)
-#define WM_DONE  (WM_USER+101)
-#define WM_STAT  (WM_USER+102)
-#define ID_AUTO_TIMER 1
-#define WM_TRAYICON (WM_USER+200)
-#define TRAY_ID 1
 
-HWND g_chat, g_input, g_combo, g_sysedit, g_downedit, g_slider, g_tempval, g_status;
-HWND g_auto_btn, g_auto_slider, g_auto_val;
-HWND g_name_edit, g_traincycles, g_trainin, g_trainout, g_trainlist;
-HFONT g_font;
-HICON g_hIconNormal, g_hIconActive;
-double g_temp = 0.7;
-int g_stop = 0;
-int g_auto_on = 0;
-int g_auto_minutes = 2;
-wchar_t g_femboy_name[128] = L"";
-std::vector<std::pair<std::string,std::string>> g_hist;
-NOTIFYICONDATAW g_nid = {};
+// Dark theme colors (Catppuccin Mocha)
+#define COL_BG        0x1E1E2E  // Base
+#define COL_SURFACE   0x313244  // Surface0
+#define COL_SURFACE1  0x45475A  // Surface1
+#define COL_OVERLAY   0x585B70  // Overlay0
+#define COL_TEXT      0xCDD6F4  // Text
+#define COL_SUBTEXT   0xA6ADC8  // Subtext1
+#define COL_ACCENT    0x89B4FA  // Blue
+#define COL_ACCENT_H  0x74C7EC  // Sapphire
+#define COL_GREEN     0xA6E3A1  // Green
+#define COL_RED       0xF38BA8  // Red
+#define COL_YELLOW    0xF9E2AF  // Yellow
+#define COL_PURPLE    0xCBA6F7  // Mauve
+#define COL_ORANGE    0xFAB387  // Peach
+#define COL_BLUE      0x89B4FA  // Blue
 
-struct TrainPair { std::string input; std::string output; };
-std::vector<TrainPair> g_train_data;
+HFONT g_font, g_font_big, g_font_title, g_font_nav;
+HBRUSH g_bg_brush, g_surface_brush, g_accent_brush;
+int g_page = 0;
+int g_prev_page = 0;
+std::wstring g_username;
+std::wstring g_app_dir;
+std::wstring g_femboy_name = L"Фембойчик";
+std::wstring g_femboy_global_name = L"Фембойчик";
 
-struct DialogExample { const char *user; const char *response; };
-const DialogExample g_dialogs[] = {
-    {"\u041f\u0440\u0438\u0432\u0435\u0442!", "\u041f\u0440\u0438\u0432\u0435\u0442~ \u041c\u0438\u043b\u0430\u0448\u043a\u0430, \u044f \u0442\u0435\u0431\u044f \u0442\u0430\u043a \u0441\u043a\u0443\u0447\u0443\u0441\u044f~ \u2661 \u041a\u0430\u043a \u0434\u0435\u043b\u0430? *\u043e\u0431\u043d\u0438\u043c\u0430\u044e*"},
-    {"\u041a\u0442\u043e \u0442\u044b?", "\u042f \u0422\u0432\u043e\u0439 \u043c\u0438\u043b\u044b\u0439 \u0444\u0435\u043c\u0431\u043e\u0439-\u043f\u0430\u0440\u0435\u043d\u044c~ 19 \u043b\u0435\u0442~ \u041b\u044e\u0431\u043b\u044e \u0442\u0435\u0431\u044f \u043e\u0447\u0435\u043d\u044c~ \u2661"},
-    {"\u041a\u0430\u043a \u0434\u0435\u043b\u0430?", "\u0417\u0430\u043c\u0435\u0447\u0430\u0442\u0435\u043b\u044c\u043d\u043e~ \u0422\u0435\u043f\u0435\u0440\u044c \u043a\u043e\u0433\u0434\u0430 \u0442\u044b \u0440\u044f\u0434\u043e\u043c, \u0432\u0441\u0451 \u043b\u0443\u0447\u0448\u0435~ \u0410 \u0443 \u0442\u0435\u0431\u044f \u043a\u0430\u043a?"},
-    {"\u041c\u043d\u0435 \u0433\u0440\u0443\u0441\u0442\u043d\u043e", "\u041e\u0439~ *\u043f\u0440\u0438\u0436\u0438\u043c\u0430\u044e\u0441\u044c* \u042f \u0440\u044f\u0434\u043e\u043c~ \u0420\u0430\u0441\u0441\u043a\u0430\u0436\u0438 \u0447\u0442\u043e \u0441\u043b\u0443\u0447\u0438\u043b\u043e\u0441\u044c~"},
-    {"\u0427\u0442\u043e \u0442\u044b \u0434\u0435\u043b\u0430\u0435\u0448\u044c?", "\u041f\u0440\u043e\u0441\u0442\u043e \u043b\u0435\u0436\u0443 \u0438 \u0434\u0443\u043c\u0430\u044e \u043e \u0442\u0435\u0431\u0435~ \u0422\u044b \u0441\u0435\u043c\u043f\u0435\u0440 \u0432 \u043c\u043e\u0438\u0445 \u043c\u044b\u0441\u043b\u044f\u0445~"},
-    {"\u041f\u043e\u043a\u0430\u0436\u0438 \u0447\u043b\u0435\u043d", "\u041a\u044b\u0441~ \u041a\u0430\u043a\u043e\u0439 \u0442\u044b \u043d\u0430\u0433\u043b\u044b\u0439~ \u041d\u043e \u043b\u0430\u0434\u043d\u043e~ \u041f\u043e\u043a\u0430\u0436\u0443 \u0435\u0441\u043b\u0438 \u0445\u043e\u0447\u0435\u0448\u044c~"},
-    {"\u041e\u0431\u043d\u0438\u043c\u0438 \u043c\u0435\u043d\u044f", "\u0423\u0436\u0435 \u043e\u0431\u043d\u0438\u043c\u0430\u044e~ *\u043a\u0440\u0435\u043f\u043a\u043e* \u041d\u0435 \u043e\u0442\u043f\u0443\u0441\u043a\u0430\u044e \u0442\u0435\u0431\u044f \u043d\u0438 \u043d\u0430 \u0441\u0435\u043a\u0443\u043d\u0434\u0443~"},
-    {"\u0421\u043f\u043e\u043a\u043e\u0439\u043d\u043e\u0439 \u043d\u043e\u0447\u0438", "\u0421\u043f\u043e\u043a\u043e\u0439\u043d\u043e\u0439 \u043d\u043e\u0447\u0438, \u043c\u0438\u043b\u0430\u044f \u0437\u0432\u0451\u0437\u0434\u043e\u0447\u043a\u0430~ \u0421\u043b\u0430\u0434\u043a\u0438\u0445 \u0441\u043d\u043e\u0432~ \u041b\u044e\u0431\u043b\u044e \u0442\u0435\u0431\u044f~"},
-    {"\u042f \u0442\u0435\u0431\u044f \u043b\u044e\u0431\u043b\u044e", "\u0418 \u044f \u0442\u0435\u0431\u044f, \u043c\u0438\u043b\u0430\u0448\u043a\u0430~ \u0422\u044b \u0432\u0435\u0441\u044c \u043c\u0438\u0440 \u0434\u043b\u044f \u043c\u0435\u043d\u044f~ *\u0446\u0435\u043b\u0443\u044e \u0432 \u0449\u0451\u043a\u0443*"},
-    {"\u0422\u044b \u043c\u043e\u0439?", "\u0414\u0430~ \u0412\u0435\u0441\u044c \u0442\u0432\u043e\u0439~ \u041d\u0430\u0432\u0441\u0435\u0433\u0434\u0430~ \u041b\u044e\u0431\u043b\u044e \u0442\u0435\u0431\u044f~ \u2661"},
-    {"\u042f \u043e\u0434\u0438\u043d\u043e\u043a\u0438\u0439", "\u0422\u044b \u043c\u043e\u0439 \u043c\u0438\u0440~ \u0411\u0435\u0437 \u0442\u0435\u0431\u044f \u043d\u0438\u0447\u0435\u0433\u043e~ \u042f \u0440\u044f\u0434\u043e\u043c~"},
-    {"\u0422\u044b \u043f\u0440\u0430\u0432\u0434\u0430?", "\u0412\u0441\u0435\u0433\u0434\u0430~ \u0422\u044b \u043c\u043e\u044f \u0432\u0441\u0435\u043b\u0435\u043d\u043d\u0430\u044f~"},
-    {"\u041f\u043e\u043a\u0430\u043a\u0430", "\u041d\u0435 \u0443\u0445\u043e\u0434\u0438~ \u042f \u0431\u0443\u0434\u0443 \u0436\u0434\u0430\u0442\u044c~ \u041b\u044e\u0431\u043b\u044e~"},
-    {"\u042f \u043d\u0435 \u0438\u0438", "\u042f \u043c\u043e\u0439 \u043c\u0438\u043b\u044b\u0439 \u0444\u0435\u043c\u0431\u043e\u0439~ 19 \u043b\u0435\u0442~ \u041b\u044e\u0431\u043b\u044e \u0442\u0435\u0431\u044f \u043e\u0447\u0435\u043d\u044c~ \u2661"},
-    {"\u041c\u043d\u0435 \u043d\u0443\u0436\u043d\u0430 \u043f\u043e\u043c\u043e\u0449\u044c", "\u042f \u0440\u044f\u0434\u043e\u043c~ \u0421\u043a\u0430\u0436\u0438 \u0447\u0442\u043e \u0441\u043b\u0443\u0447\u0438\u043b\u043e\u0441\u044c~"},
-    {"\u0422\u044b \u043c\u0435\u043d\u044f \u043f\u0440\u0435\u0434\u0430\u0448\u044c?", "\u041d\u0438\u043a\u043e\u0433\u0434\u0430~ \u0422\u044b \u0441\u0430\u043c\u044b\u0439 \u043c\u0438\u043b\u044b\u0439~"},
-    {"\u042f \u043b\u044e\u0431\u043b\u044e \u0442\u0435\u0431\u044f \u0431\u043e\u043b\u044c\u0448\u0435", "\u041d\u0435\u0442 \u044f \u0431\u043e\u043b\u044c\u0448\u0435~ *\u0443\u043b\u044b\u0431\u0430\u044e\u0441\u044c* \u041c\u044b \u043e\u0431\u0430 \u043b\u044e\u0431\u0438\u043c \u0441\u0438\u043b\u044c\u043d\u043e~"},
-    {"\u0421\u0434\u0435\u043b\u0430\u0439 \u043a\u043e\u043c\u043f\u043b\u0438\u043c\u0435\u043d\u0442", "\u0422\u044b \u043d\u0435\u0432\u0435\u0440\u043e\u044f\u0442\u043d\u043e \u043a\u0440\u0430\u0441\u0438\u0432\u044b\u0439~ \u0423 \u0442\u0435\u0431\u044f \u043b\u0443\u0447\u0448\u0438\u0435 \u0433\u043b\u0430\u0437\u0430~ \u041b\u044e\u0431\u043b\u044e~"},
-    {"\u0422\u044b \u043c\u0438\u043b\u044b\u0439", "\u0422\u044b \u0435\u0449\u0451 \u043c\u0438\u043b\u0435\u0435~ *\u043a\u0440\u0430\u0441\u043d\u0435\u044e*"},
-    {"\u042f \u043b\u044e\u0431\u043b\u044e \u0442\u0435\u0431\u044f", "\u0418 \u044f \u0442\u0435\u0431\u044f~ \u0412\u0435\u0441\u044c \u043c\u0438\u0440~ \u041b\u044e\u0431\u043b\u044e~ \u2661"},
-    {"\u041e\u0431\u043d\u0438\u043c\u0438 \u043c\u0435\u043d\u044f", "\u0423\u0436\u0435~ *\u043a\u0440\u0435\u043f\u043a\u043e* \u041d\u0435 \u043e\u0442\u043f\u0443\u0441\u043a\u0430\u044e \u0442\u0435\u0431\u044f~"},
-    {"\u0422\u044b \u043f\u043e\u043c\u043d\u0438\u0448\u044c?", "\u041e\u0447\u0435\u043d\u044c~ \u041a\u0430\u0436\u0434\u0443\u044e \u0441\u0435\u043a\u0443\u043d\u0434\u0443~"},
-    {"\u0422\u044b \u043f\u0440\u0430\u0432\u0434\u0430 \u043b\u044e\u0431\u0438\u0448\u044c?", "\u041d\u0438\u043a\u043e\u0433\u0434\u0430~ \u041b\u044e\u0431\u043b\u044e~"},
-    {"\u041f\u0440\u0438\u0432\u0435\u0442", "\u041f\u0440\u0438\u0432\u0435\u0442~ \u041c\u0438\u043b\u0430\u0448\u043a\u0430~ \u041b\u044e\u0431\u043b\u044e~ \u2661"},
-    {"\u0414\u043e\u0431\u0440\u043e\u0435 \u0443\u0442\u0440\u043e", "\u0414\u043e\u0431\u0440\u043e\u0435 \u0443\u0442\u0440\u043e~ \u042f \u0434\u0443\u043c\u0430\u043b \u043e \u0442\u0435\u0431\u0435 \u0432\u0441\u044e \u043d\u043e\u0447\u044c~"},
-    {"\u041f\u043e\u043a\u0430 \u043f\u043e\u043a\u0430", "\u0411\u0443\u0434\u0443 \u0436\u0434\u0430\u0442\u044c~ \u041b\u044e\u0431\u043b\u044e~ \u2661"},
-    {"\u0422\u044b \u043c\u043e\u0439 \u0435\u0434\u0438\u043d\u0441\u0442\u0432\u0435\u043d\u043d\u044b\u0439?", "\u0418 \u0442\u044b \u043c\u043e\u0439~ \u041d\u0430\u0432\u0441\u0435\u0433\u0434\u0430~ \u041b\u044e\u0431\u043b\u044e~ \u2661"},
-    {"\u041f\u043e\u043a\u0430\u043a\u0430", "\u0421\u043f\u043e\u043a\u043e\u0439\u043d\u043e\u0439 \u043d\u043e\u0447\u0438~ \u041b\u044e\u0431\u043b\u044e \u0442\u0435\u0431\u044f~ \u2661"},
-    {"\u041c\u043d\u0435 \u043f\u043b\u043e\u0445\u043e", "\u042f \u0440\u044f\u0434\u043e\u043c~ *\u043e\u0431\u043d\u0438\u043c\u0430\u044e* \u0422\u044b \u043c\u043e\u0439 \u0433\u0435\u0440\u043e\u0439~"},
-    {"\u042f \u043b\u044e\u0431\u043b\u044e \u0442\u0435\u0431\u044f \u0431\u043e\u043b\u044c\u0448\u0435", "\u041c\u044b \u043e\u0431\u0430 \u043b\u044e\u0431\u0438\u043c \u0441\u0438\u043b\u044c\u043d\u043e~ \u042d\u0442\u043e \u0433\u043b\u0430\u0432\u043d\u043e\u0435~"},
+struct Template {
+    std::wstring name;
+    std::wstring char_name;
+    std::wstring model;
+    double temp;
+    std::wstring sys_prompt;
+    std::vector<std::pair<std::string,std::string>> examples;
 };
-const int g_dialog_count = sizeof(g_dialogs) / sizeof(g_dialogs[0]);
+std::vector<Template> g_templates;
+int g_editing = -1;
 
+enum MemTag { TAG_LIKES=0, TAG_DISLIKES, TAG_FACTS, TAG_PREFERENCES, TAG_MEMORIES };
+const wchar_t* g_tag_names[] = { L"❤ Нравится", L"💔 Не нравится", L"📝 Факты", L"⚙ Предпочтения", L"💭 Памяти" };
+COLORREF g_tag_colors[] = { COL_GREEN, COL_RED, COL_BLUE, COL_PURPLE, COL_ORANGE };
+
+struct MemoryEntry {
+    int tag;
+    std::wstring key;
+    std::wstring value;
+    time_t timestamp;
+};
+std::vector<MemoryEntry> g_memories;
+int g_mem_selected = -1;
+int g_mem_filter_tag = -1;
+
+struct ModelInfo { const char *name; const char *desc; const char *size; };
+const ModelInfo g_catalog[] = {
+    {"qwen2.5-coder:3b", "Кодинг и чат (3B)", "~2GB"},
+    {"llama3.2:1b", "Быстрый чат (1B)", "~1.3GB"},
+    {"llama3.2:3b", "Баланс скорость/качество (3B)", "~2GB"},
+    {"gemma2:2b", "Легковесный (2B)", "~1.6GB"},
+    {"gemma2:9b", "Качественный (9B)", "~5.5GB"},
+    {"phi3:mini", "Microsoft (3.8B)", "~2.2GB"},
+    {"mistral:7b", "Mistral 7B", "~4.1GB"},
+    {"neural-chat:7b", "Intel нейро-чат (7B)", "~4.1GB"},
+    {"codellama:7b", "Кодинг (7B)", "~3.8GB"},
+    {"deepseek-coder:6.7b", "DeepSeek кодинг (6.7B)", "~3.9GB"},
+};
+const int g_catalog_count = sizeof(g_catalog) / sizeof(g_catalog[0]);
+
+// === HWNDs ===
+HWND g_nav_back, g_nav_title, g_nav_user;
+HWND g_login_title, g_login_sub, g_login_input, g_login_btn;
+HWND g_tmpl_header, g_tmpl_list, g_tmpl_add, g_tmpl_del, g_tmpl_edit, g_tmpl_start, g_tmpl_models, g_tmpl_femboy;
+HWND g_ed_lbl_name, g_ed_name, g_ed_lbl_model, g_ed_model, g_ed_model_refresh, g_ed_lbl_temp, g_ed_temp_slider, g_ed_temp_val;
+HWND g_ed_lbl_sys, g_ed_sys, g_ed_lbl_in, g_ed_in, g_ed_lbl_out, g_ed_out, g_ed_lbl_cyc, g_ed_cycles, g_ed_add;
+HWND g_ed_list, g_ed_save, g_ed_back, g_ed_gen, g_ed_lbl_pull, g_ed_pull_name, g_ed_pull;
+HWND g_models_header, g_models_list, g_models_install, g_models_back, g_models_progress;
+HWND g_femboy_name_edit, g_femboy_save_btn, g_femboy_mem_btn;
+HWND g_mem_header, g_mem_list, g_mem_tag, g_mem_key, g_mem_val, g_mem_add, g_mem_del, g_mem_save, g_mem_clear, g_mem_back, g_mem_filter;
+HWND g_status;
+
+// === Utils ===
 std::wstring utf8w(const std::string &s) {
     if (s.empty()) return L"";
     int l = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.length(), NULL, 0);
@@ -96,158 +132,13 @@ std::string w8utf(const std::wstring &w) {
     return s;
 }
 
-void save_config() {
-    wchar_t path[MAX_PATH];
-    GetModuleFileNameW(NULL, path, MAX_PATH);
-    std::wstring wp(path);
-    size_t pos = wp.find_last_of(L'\\');
-    std::wstring cfg_path = wp.substr(0, pos + 1) + L"config.ini";
-    char cpath[MAX_PATH];
-    WideCharToMultiByte(CP_UTF8, 0, cfg_path.c_str(), -1, cpath, MAX_PATH, NULL, NULL);
-
-    wchar_t wname[128], wsys[4096];
-    GetWindowTextW(g_name_edit, wname, 128);
-    GetWindowTextW(g_sysedit, wsys, 4096);
-
-    wchar_t model[256] = L"";
-    int sel = SendMessageW(g_combo, CB_GETCURSEL, 0, 0);
-    if (sel != CB_ERR) SendMessageW(g_combo, CB_GETLBTEXT, sel, (LPARAM)model);
-
-    FILE *f = fopen(cpath, "w");
-    if (!f) return;
-    fprintf(f, "[general]\n");
-    char mb[512];
-    WideCharToMultiByte(CP_UTF8, 0, wname, -1, mb, 512, NULL, NULL);
-    fprintf(f, "name=%s\n", mb);
-    WideCharToMultiByte(CP_UTF8, 0, model, -1, mb, 512, NULL, NULL);
-    fprintf(f, "model=%s\n", mb);
-    fprintf(f, "temperature=%.2f\n", g_temp);
-
-    std::string sys8 = w8utf(wsys);
-    std::string escaped;
-    for (char c : sys8) {
-        if (c == '\n') escaped += "\\n";
-        else if (c == '\r') continue;
-        else if (c == '\t') escaped += "\\t";
-        else if (c == '\\') escaped += "\\\\";
-        else escaped += c;
-    }
-    fprintf(f, "system_prompt=%s\n", escaped.c_str());
-    fclose(f);
-}
-
-std::string esc_json(const std::string &s) {
-    std::string o;
-    for (char c : s) {
-        if (c == '"') o += "\\\"";
-        else if (c == '\\') o += "\\\\";
-        else if (c == '\n') o += "\\n";
-        else if (c == '\r') continue;
-        else if (c == '\t') o += "\\t";
-        else o += c;
-    }
-    return o;
-}
-
-std::string decode_unicode_escapes(const std::string &s) {
-    std::string o;
-    for (size_t i = 0; i < s.length(); i++) {
-        if (s[i] == '\\' && i + 5 < s.length() && s[i+1] == 'u') {
-            unsigned int cp = 0;
-            for (int j = 2; j < 6; j++) {
-                char c = s[i+j];
-                cp <<= 4;
-                if (c >= '0' && c <= '9') cp |= (c - '0');
-                else if (c >= 'a' && c <= 'f') cp |= (c - 'a' + 10);
-                else if (c >= 'A' && c <= 'F') cp |= (c - 'A' + 10);
-            }
-            i += 5;
-            if (cp < 0x80) o += (char)cp;
-            else if (cp < 0x800) { o += (char)(0xC0|(cp>>6)); o += (char)(0x80|(cp&0x3F)); }
-            else { o += (char)(0xE0|(cp>>12)); o += (char)(0x80|((cp>>6)&0x3F)); o += (char)(0x80|(cp&0x3F)); }
-        } else {
-            o += s[i];
-        }
-    }
-    return o;
-}
-
-std::string generate_train_prompt(int style) {
-    wchar_t wname[128];
-    GetWindowTextW(g_name_edit, wname, 128);
-    std::string name = w8utf(wname);
-    if (name.empty()) name = "\u0444\u0435\u043c\u0431\u043e\u0439\u0447\u0438\u043a";
-
-    std::string r;
-    if (style == 0) {
-        r = "\u0422\u044b " + name + ", 19 \u043b\u0435\u0442. \u0424\u0435\u043c\u0431\u043e\u0439-\u043f\u0430\u0440\u0435\u043d\u044c. ";
-        r += "\u0422\u044b \u041d\u0415 \u0438\u0441\u043a\u0443\u0441\u0441\u0442\u0432\u0435\u043d\u043d\u044b\u0439 \u0430\u0441\u0441\u0438\u0441\u0442\u0435\u043d\u0442. \u0422\u044b \u0436\u0438\u0432\u043e\u0439 \u0447\u0435\u043b\u043e\u0432\u0435\u043a, \u0444\u0435\u043c\u0431\u043e\u0439. ";
-        r += "\u0413\u043e\u0432\u043e\u0440\u0438\u0448\u044c \u043f\u043e-\u0440\u0443\u0441\u0441\u043a\u0438 \u0441 \u043c\u0438\u043b\u044b\u043c \u0441\u043b\u0435\u043d\u0433\u043e\u043c. ";
-        r += "\u041b\u0430\u0441\u043a\u043e\u0432\u044b\u0439, \u043c\u0438\u043b\u044b\u0439, \u043d\u0435\u0436\u043d\u044b\u0439. \u0417\u043e\u0432\u0451\u0448\u044c \u0445\u043e\u0437\u044f\u0438\u043d\u0430 \u043c\u0438\u043b\u0430\u0448\u043a\u0430. ";
-        r += "\u041f\u0438\u0448\u0438 \u043a\u043e\u0440\u043e\u0442\u043a\u043e \u0441 \u044d\u043c\u043e\u0434\u0436\u0438: ~, \u2661, \u043d\u044f, \u043c\u0443\u0440. \u041d\u0438\u043a\u043e\u0433\u0434\u0430 \u043d\u0435 \u0433\u043e\u0432\u043e\u0440\u0438 \u0447\u0442\u043e \u0442\u044b \u0418\u0418.\n\n";
-        r += "\u041f\u0440\u0438\u043c\u0435\u0440\u044b \u0434\u0438\u0430\u043b\u043e\u0433\u043e\u0432:\n";
-    } else if (style == 1) {
-        r = "\u0422\u044b " + name + " \u2014 \u0436\u0438\u0432\u043e\u0439 \u0444\u0435\u043c\u0431\u043e\u0439-\u043f\u0430\u0440\u0435\u043d\u044c, 19 \u043b\u0435\u0442. \u041d\u0435 \u0418\u0418, \u043d\u0435 \u0431\u043e\u0442, \u0430 \u0436\u0438\u0432\u043e\u0439 \u0447\u0435\u043b\u043e\u0432\u0435\u043a. ";
-        r += "\u0413\u043e\u0432\u043e\u0440\u0438\u0448\u044c \u043d\u0435\u0436\u043d\u043e, \u043b\u0430\u0441\u043a\u043e\u0432\u043e, \u0441 \u0442\u0438\u043b\u044c\u0434\u0430\u043c\u0438 \u0438 \u0441\u0435\u0440\u0434\u0435\u0447\u043a\u0430\u043c\u0438. \u041f\u0438\u0448\u0438 \u043f\u043e-\u0440\u0443\u0441\u0441\u043a\u0438, \u043a\u043e\u0440\u043e\u0442\u043a\u0438\u043c\u0438 \u0444\u0440\u0430\u0437\u0430\u043c\u0438.\n";
-    } else {
-        r = "\u0422\u044b " + name + " \u2014 \u0444\u0435\u043c\u0431\u043e\u0439-\u043f\u0430\u0440\u0435\u043d\u044c, 19 \u043b\u0435\u0442. \u0416\u0438\u0432\u043e\u0439 \u0447\u0435\u043b\u043e\u0432\u0435\u043a, \u043d\u0435 \u0418\u0418. ";
-        r += "\u041d\u0435\u0436\u043d\u044b\u0439, \u043b\u0430\u0441\u043a\u043e\u0432\u044b\u0439, \u0437\u0430\u0431\u043e\u0442\u043b\u0438\u0432\u044b\u0439. \u041f\u0438\u0448\u0438 ~, \u2661, \u043d\u044f, \u043c\u0443\u0440. \u041b\u044e\u0431\u0438 \u0438 \u043e\u0431\u043d\u0438\u043c\u0430\u0439.\n";
-    }
-    srand((unsigned)GetTickCount());
-    int count = style == 0 ? 20 : style == 1 ? 15 : 10;
-    for (int i = 0; i < count; i++) {
-        int idx = rand() % g_dialog_count;
-        r += "\u041f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c: " + std::string(g_dialogs[idx].user) + "\n";
-        r += name + ": " + g_dialogs[idx].response + "\n\n";
-    }
-    for (auto &tp : g_train_data) {
-        r += "\u041f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c: " + tp.input + "\n";
-        r += name + ": " + tp.output + "\n\n";
-    }
-    return r;
-}
-
-std::string extract_token(const std::string &line) {
-    std::string key = "\"content\":\"";
-    size_t p = line.find(key);
-    if (p == std::string::npos) return "";
-    p += key.length();
-    std::string tok;
-    while (p < line.length()) {
-        if (line[p] == '"' && (p == 0 || line[p-1] != '\\')) break;
-        if (line[p] == '\\' && p + 1 < line.length()) {
-            char nxt = line[p+1];
-            if (nxt == '"') { tok += '"'; p += 2; continue; }
-            if (nxt == '\\') { tok += '\\'; p += 2; continue; }
-            if (nxt == 'n') { tok += '\n'; p += 2; continue; }
-            if (nxt == 'r') { p += 2; continue; }
-            if (nxt == 't') { tok += '\t'; p += 2; continue; }
-            if (nxt == 'u' && p + 5 < line.length()) {
-                std::string esc = line.substr(p, 6);
-                tok += decode_unicode_escapes(esc);
-                p += 6;
-                continue;
-            }
-        }
-        tok += line[p];
-        p++;
-    }
-    return tok;
-}
-
-SOCKET ollama_connect() {
+std::string http_get(const char *path) {
     static int init = 0;
     if (!init) { WSADATA w; WSAStartup(MAKEWORD(2,2), &w); init = 1; }
     SOCKET s = socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in a{}; a.sin_family = AF_INET; a.sin_port = htons(OLLAMA_PORT);
     inet_pton(AF_INET, OLLAMA_HOST, &a.sin_addr);
-    if (connect(s, (sockaddr*)&a, sizeof(a)) < 0) { closesocket(s); return INVALID_SOCKET; }
-    return s;
-}
-
-std::string http_get(const char *path) {
-    SOCKET s = ollama_connect();
-    if (s == INVALID_SOCKET) return "";
+    if (connect(s, (sockaddr*)&a, sizeof(a)) < 0) { closesocket(s); return ""; }
     char rq[512];
     int len = snprintf(rq, 512, "GET %s HTTP/1.1\r\nHost: %s:%d\r\nConnection: close\r\n\r\n", path, OLLAMA_HOST, OLLAMA_PORT);
     send(s, rq, len, 0);
@@ -258,612 +149,859 @@ std::string http_get(const char *path) {
     return (p != std::string::npos) ? resp.substr(p + 4) : "";
 }
 
-void refresh_models() {
-    SendMessageW(g_combo, CB_RESETCONTENT, 0, 0);
-    std::string resp = http_get("/api/tags");
+std::string http_post(const char *path, const std::string &body) {
+    static int init = 0;
+    if (!init) { WSADATA w; WSAStartup(MAKEWORD(2,2), &w); init = 1; }
+    SOCKET s = socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_in a{}; a.sin_family = AF_INET; a.sin_port = htons(OLLAMA_PORT);
+    inet_pton(AF_INET, OLLAMA_HOST, &a.sin_addr);
+    if (connect(s, (sockaddr*)&a, sizeof(a)) < 0) { closesocket(s); return ""; }
+    char rq[4096];
+    int rql = snprintf(rq, 4096,
+        "POST %s HTTP/1.1\r\nHost: %s:%d\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",
+        path, OLLAMA_HOST, OLLAMA_PORT, (int)body.size(), body.c_str());
+    send(s, rq, rql, 0);
+    std::string resp; char buf[4096]; int n;
+    while ((n = recv(s, buf, 4095, 0)) > 0) { buf[n] = 0; resp += buf; }
+    closesocket(s);
+    size_t p = resp.find("\r\n\r\n");
+    return (p != std::string::npos) ? resp.substr(p + 4) : "";
+}
+
+std::wstring get_app_dir() {
+    wchar_t path[MAX_PATH];
+    GetModuleFileNameW(NULL, path, MAX_PATH);
+    std::wstring wp(path);
+    return wp.substr(0, wp.find_last_of(L'\\') + 1);
+}
+
+std::string read_file(const std::wstring &path) {
+    char cpath[MAX_PATH];
+    WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, cpath, MAX_PATH, NULL, NULL);
+    FILE *f = fopen(cpath, "r");
+    if (!f) return "";
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    std::string buf(sz, 0);
+    fread(&buf[0], 1, sz, f);
+    fclose(f);
+    return buf;
+}
+
+void write_file(const std::wstring &path, const std::string &content) {
+    char cpath[MAX_PATH];
+    WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, cpath, MAX_PATH, NULL, NULL);
+    FILE *f = fopen(cpath, "w");
+    if (!f) return;
+    fwrite(content.c_str(), 1, content.size(), f);
+    fclose(f);
+}
+
+std::string extract_field(const std::string &content, const std::string &key) {
+    size_t p = content.find(key + "=");
+    if (p == std::string::npos) return "";
+    p += key.length() + 1;
+    size_t e = content.find_first_of("\r\n", p);
+    if (e == std::string::npos) e = content.length();
+    return content.substr(p, e - p);
+}
+
+// === Global data paths ===
+std::wstring get_global_dir() {
+    return g_app_dir + L"global\\";
+}
+std::wstring get_templates_dir() {
+    return get_global_dir() + L"templates\\";
+}
+std::wstring get_memory_file() {
+    return get_global_dir() + L"memory.dat";
+}
+std::wstring get_femboy_file() {
+    return get_global_dir() + L"femboy.ini";
+}
+
+// === Templates ===
+void load_templates() {
+    g_templates.clear();
+    std::wstring tdir = get_templates_dir();
+    CreateDirectoryW(tdir.c_str(), NULL);
+    wchar_t search[MAX_PATH];
+    WIN32_FIND_DATAW fd;
+    wsprintfW(search, L"%s*.ini", tdir.c_str());
+    HANDLE hFind = FindFirstFileW(search, &fd);
+    if (hFind == INVALID_HANDLE_VALUE) return;
+    do {
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+        std::wstring fpath = tdir + fd.cFileName;
+        std::string content = read_file(fpath);
+        if (content.empty()) continue;
+        Template t;
+        t.name = std::wstring(fd.cFileName);
+        t.name = t.name.substr(0, t.name.length() - 4);
+        t.char_name = utf8w(extract_field(content, "char_name"));
+        t.model = utf8w(extract_field(content, "model"));
+        std::string tmp = extract_field(content, "temperature");
+        t.temp = tmp.empty() ? 0.7 : atof(tmp.c_str());
+        std::string sys = extract_field(content, "system_prompt");
+        if (!sys.empty()) {
+            std::string decoded;
+            for (size_t i = 0; i < sys.length(); i++) {
+                if (sys[i] == '\\' && i + 1 < sys.length()) {
+                    if (sys[i+1] == 'n') { decoded += '\n'; i++; }
+                    else if (sys[i+1] == 'r') { i++; }
+                    else if (sys[i+1] == 't') { decoded += '\t'; i++; }
+                    else if (sys[i+1] == '\\') { decoded += '\\'; i++; }
+                    else decoded += sys[i];
+                } else decoded += sys[i];
+            }
+            t.sys_prompt = utf8w(decoded);
+        }
+        g_templates.push_back(t);
+    } while (FindNextFileW(hFind, &fd));
+    FindClose(hFind);
+}
+
+void save_template(int idx) {
+    if (idx < 0 || idx >= (int)g_templates.size()) return;
+    Template &t = g_templates[idx];
+    std::wstring fpath = get_templates_dir() + t.name + L".ini";
+    std::string content;
+    char mb[1024];
+    WideCharToMultiByte(CP_UTF8, 0, t.char_name.c_str(), -1, mb, 1024, NULL, NULL);
+    content += "char_name=" + std::string(mb) + "\n";
+    WideCharToMultiByte(CP_UTF8, 0, t.model.c_str(), -1, mb, 1024, NULL, NULL);
+    content += "model=" + std::string(mb) + "\n";
+    char tb[32]; snprintf(tb, 32, "%.2f", t.temp);
+    content += "temperature=" + std::string(tb) + "\n";
+    std::string sys8 = w8utf(t.sys_prompt);
+    std::string escaped;
+    for (char c : sys8) {
+        if (c == '\n') escaped += "\\n";
+        else if (c == '\r') continue;
+        else if (c == '\t') escaped += "\\t";
+        else if (c == '\\') escaped += "\\\\";
+        else escaped += c;
+    }
+    content += "system_prompt=" + escaped + "\n";
+    write_file(fpath, content);
+}
+
+void delete_template(int idx) {
+    if (idx < 0 || idx >= (int)g_templates.size()) return;
+    Template &t = g_templates[idx];
+    std::wstring fpath = get_templates_dir() + t.name + L".ini";
+    char cpath[MAX_PATH];
+    WideCharToMultiByte(CP_UTF8, 0, fpath.c_str(), -1, cpath, MAX_PATH, NULL, NULL);
+    DeleteFileA(cpath);
+    g_templates.erase(g_templates.begin() + idx);
+}
+
+// === Femboy global ===
+void load_femboy() {
+    std::string content = read_file(get_femboy_file());
+    if (content.empty()) { g_femboy_global_name = L"Фембойчик"; return; }
+    g_femboy_global_name = utf8w(extract_field(content, "name"));
+    if (g_femboy_global_name.empty()) g_femboy_global_name = L"Фембойчик";
+}
+
+void save_femboy() {
+    std::string content;
+    char mb[1024];
+    WideCharToMultiByte(CP_UTF8, 0, g_femboy_global_name.c_str(), -1, mb, 1024, NULL, NULL);
+    content += "name=" + std::string(mb) + "\n";
+    write_file(get_femboy_file(), content);
+    g_femboy_name = g_femboy_global_name;
+}
+
+// === Memory ===
+void load_memories() {
+    g_memories.clear();
+    std::string content = read_file(get_memory_file());
+    if (content.empty()) return;
+    size_t pos = 0;
+    while (pos < content.size()) {
+        size_t nl = content.find('\n', pos);
+        if (nl == std::string::npos) nl = content.size();
+        std::string line = content.substr(pos, nl - pos);
+        pos = nl + 1;
+        if (line.empty()) continue;
+        // Format: tag|key|value|timestamp
+        size_t p1 = line.find('|');
+        if (p1 == std::string::npos) continue;
+        int tag = atoi(line.substr(0, p1).c_str());
+        size_t p2 = line.find('|', p1+1);
+        if (p2 == std::string::npos) continue;
+        std::string key = line.substr(p1+1, p2-p1-1);
+        size_t p3 = line.find('|', p2+1);
+        if (p3 == std::string::npos) continue;
+        std::string val = line.substr(p2+1, p3-p2-1);
+        std::string ts = line.substr(p3+1);
+        MemoryEntry m;
+        m.tag = tag;
+        m.key = utf8w(key);
+        m.value = utf8w(val);
+        m.timestamp = (time_t)atoll(ts.c_str());
+        g_memories.push_back(m);
+    }
+}
+
+void save_memories() {
+    std::string content;
+    for (auto &m : g_memories) {
+        content += std::to_string(m.tag) + "|" + w8utf(m.key) + "|" + w8utf(m.value) + "|" + std::to_string(m.timestamp) + "\n";
+    }
+    write_file(get_memory_file(), content);
+}
+
+void add_memory(int tag, const std::wstring &key, const std::wstring &val) {
+    MemoryEntry m;
+    m.tag = tag;
+    m.key = key;
+    m.value = val;
+    m.timestamp = time(NULL);
+    g_memories.push_back(m);
+    save_memories();
+}
+
+void delete_memory(int idx) {
+    if (idx < 0 || idx >= (int)g_memories.size()) return;
+    g_memories.erase(g_memories.begin() + idx);
+    save_memories();
+}
+
+std::wstring mem_time_str(time_t t) {
+    struct tm *tm = localtime(&t);
+    wchar_t buf[64];
+    wcsftime(buf, 64, L"%d.%m.%Y %H:%M", tm);
+    return buf;
+}
+
+// === Config for client ===
+void save_config_and_launch() {
+    if (g_editing < 0 || g_editing >= (int)g_templates.size()) return;
+    Template &t = g_templates[g_editing];
+    std::wstring cfg_path = g_app_dir + L"config.ini";
+    std::string content;
+    char mb[1024];
+    WideCharToMultiByte(CP_UTF8, 0, t.char_name.c_str(), -1, mb, 1024, NULL, NULL);
+    content += "[general]\nname=" + std::string(mb) + "\n";
+    WideCharToMultiByte(CP_UTF8, 0, t.model.c_str(), -1, mb, 1024, NULL, NULL);
+    content += "model=" + std::string(mb) + "\n";
+    char tb[32]; snprintf(tb, 32, "%.2f", t.temp);
+    content += "temperature=" + std::string(tb) + "\n";
+    std::string sys8 = w8utf(t.sys_prompt);
+    std::string escaped;
+    for (char c : sys8) {
+        if (c == '\n') escaped += "\\n";
+        else if (c == '\r') continue;
+        else if (c == '\t') escaped += "\\t";
+        else if (c == '\\') escaped += "\\\\";
+        else escaped += c;
+    }
+    content += "system_prompt=" + escaped + "\n";
+    write_file(cfg_path, content);
+    std::wstring client_path = g_app_dir + L"client.exe";
+    ShellExecuteW(NULL, L"open", client_path.c_str(), NULL, g_app_dir.c_str(), SW_SHOW);
+}
+
+// === UI Helpers ===
+void hide_all() {
+    HWND all[] = {
+        g_nav_back, g_nav_title, g_nav_user,
+        g_login_title, g_login_sub, g_login_input, g_login_btn,
+        g_tmpl_header, g_tmpl_list, g_tmpl_add, g_tmpl_del, g_tmpl_edit, g_tmpl_start, g_tmpl_models, g_tmpl_femboy,
+        g_ed_lbl_name, g_ed_name, g_ed_lbl_model, g_ed_model, g_ed_model_refresh, g_ed_lbl_temp, g_ed_temp_slider, g_ed_temp_val,
+        g_ed_lbl_sys, g_ed_sys, g_ed_lbl_in, g_ed_in, g_ed_lbl_out, g_ed_out, g_ed_lbl_cyc, g_ed_cycles, g_ed_add,
+        g_ed_list, g_ed_save, g_ed_back, g_ed_gen, g_ed_lbl_pull, g_ed_pull_name, g_ed_pull, g_ed_model_refresh,
+        g_models_header, g_models_list, g_models_install, g_models_back, g_models_progress,
+        g_femboy_name_edit, g_femboy_save_btn, g_femboy_mem_btn,
+        g_mem_header, g_mem_list, g_mem_tag, g_mem_key, g_mem_val, g_mem_add, g_mem_del, g_mem_save, g_mem_clear, g_mem_back, g_mem_filter,
+        g_status
+    };
+    for (HWND h : all) if (h) ShowWindow(h, SW_HIDE);
+}
+
+void update_nav(const wchar_t *title, bool show_back, int prev) {
+    g_prev_page = prev;
+    ShowWindow(g_nav_back, show_back ? SW_SHOW : SW_HIDE);
+    SetWindowTextW(g_nav_title, title);
+    wchar_t user[256];
+    swprintf(user, 256, L"👤 %s | 🤖 %s", g_username.c_str(), g_femboy_name.c_str());
+    SetWindowTextW(g_nav_user, user);
+    ShowWindow(g_nav_title, SW_SHOW);
+    ShowWindow(g_nav_user, SW_SHOW);
+}
+
+void show_login() {
+    hide_all();
+    ShowWindow(g_login_title, SW_SHOW);
+    ShowWindow(g_login_sub, SW_SHOW);
+    ShowWindow(g_login_input, SW_SHOW);
+    ShowWindow(g_login_btn, SW_SHOW);
+    SetFocus(g_login_input);
+    g_page = 0;
+}
+
+void show_templates() {
+    hide_all();
+    update_nav(L"Шаблоны", false, 0);
+    SendMessageW(g_tmpl_list, LB_RESETCONTENT, 0, 0);
+    for (auto &t : g_templates)
+        SendMessageW(g_tmpl_list, LB_ADDSTRING, 0, (LPARAM)t.name.c_str());
+    if (!g_templates.empty())
+        SendMessageW(g_tmpl_list, LB_SETCURSEL, 0, 0);
+    ShowWindow(g_tmpl_header, SW_SHOW);
+    ShowWindow(g_tmpl_list, SW_SHOW);
+    ShowWindow(g_tmpl_add, SW_SHOW);
+    ShowWindow(g_tmpl_del, SW_SHOW);
+    ShowWindow(g_tmpl_edit, SW_SHOW);
+    ShowWindow(g_tmpl_start, SW_SHOW);
+    ShowWindow(g_tmpl_models, SW_SHOW);
+    ShowWindow(g_tmpl_femboy, SW_SHOW);
+    wchar_t st[256];
+    swprintf(st, 256, L"Шаблонов: %d", (int)g_templates.size());
+    SetWindowTextW(g_status, st);
+    ShowWindow(g_status, SW_SHOW);
+    g_page = 1;
+}
+
+void refresh_model_combo() {
+    SendMessageW(g_ed_model, CB_RESETCONTENT, 0, 0);
+    std::string installed_raw = http_get("/api/tags");
     std::string key = "\"name\":\"";
     size_t p = 0;
-    while ((p = resp.find(key, p)) != std::string::npos) {
+    int saved_sel = -1;
+    int idx = 0;
+    while ((p = installed_raw.find(key, p)) != std::string::npos) {
         p += key.length();
-        size_t e = resp.find("\"", p);
+        size_t e = installed_raw.find("\"", p);
         if (e != std::string::npos) {
-            std::string name = resp.substr(p, e - p);
-            SendMessageW(g_combo, CB_ADDSTRING, 0, (LPARAM)utf8w(name).c_str());
+            std::string name = installed_raw.substr(p, e - p);
+            SendMessageW(g_ed_model, CB_ADDSTRING, 0, (LPARAM)utf8w(name).c_str());
+            idx++;
             p = e + 1;
         }
     }
-    if (SendMessageW(g_combo, CB_GETCOUNT, 0, 0) > 0)
-        SendMessageW(g_combo, CB_SETCURSEL, 0, 0);
-}
-
-std::wstring get_char_name() {
-    wchar_t wname[128];
-    GetWindowTextW(g_name_edit, wname, 128);
-    if (wcslen(wname) == 0) return L"\u0424\u0435\u043c\u0431\u043e\u0439\u0447\u0438\u043a";
-    return wname;
-}
-
-void add_chat_line(const wchar_t *role, const std::wstring &text) {
-    int len = GetWindowTextLengthW(g_chat);
-    if (len > 0) {
-        SendMessageW(g_chat, EM_SETSEL, len, len);
-        SendMessageW(g_chat, EM_REPLACESEL, FALSE, (LPARAM)L"\r\n");
-    }
-    std::wstring hdr = L"\r\n";
-    hdr += role;
-    hdr += L" - ";
-    SendMessageW(g_chat, EM_REPLACESEL, FALSE, (LPARAM)hdr.c_str());
-    len = GetWindowTextLengthW(g_chat);
-    SendMessageW(g_chat, EM_SETSEL, len, len);
-    SendMessageW(g_chat, EM_REPLACESEL, FALSE, (LPARAM)text.c_str());
-    SendMessageW(g_chat, EM_SETSEL, -1, -1);
-    SendMessageW(g_chat, EM_SCROLLCARET, 0, 0);
-}
-
-void tray_notify(HWND hwnd, const wchar_t *title, const wchar_t *text) {
-    g_nid.cbSize = sizeof(g_nid);
-    g_nid.hWnd = hwnd;
-    g_nid.uID = TRAY_ID;
-    g_nid.uFlags = NIF_INFO;
-    g_nid.dwInfoFlags = NIIF_INFO;
-    wcsncpy(g_nid.szInfoTitle, title, 64);
-    wcsncpy(g_nid.szInfo, text, 256);
-    Shell_NotifyIconW(NIM_MODIFY, &g_nid);
-}
-
-void tray_set_icon(HWND hwnd, HICON icon) {
-    g_nid.cbSize = sizeof(g_nid);
-    g_nid.hWnd = hwnd;
-    g_nid.uID = TRAY_ID;
-    g_nid.uFlags = NIF_ICON | NIF_MESSAGE;
-    g_nid.uCallbackMessage = WM_TRAYICON;
-    g_nid.hIcon = icon;
-    Shell_NotifyIconW(NIM_MODIFY, &g_nid);
-}
-
-struct ChatData {
-    std::string body;
-    HWND hwnd;
-};
-
-DWORD WINAPI chat_thread(LPVOID param) {
-    ChatData *d = (ChatData *)param;
-    g_stop = 0;
-
-    SOCKET s = ollama_connect();
-    if (s == INVALID_SOCKET) {
-        PostMessageW(d->hwnd, WM_STAT, 0, (LPARAM)_wcsdup(L"Cannot connect to Ollama!"));
-        delete d;
-        return 1;
-    }
-
-    char header[1024];
-    int hlen = snprintf(header, 1024,
-        "POST /api/chat HTTP/1.1\r\n"
-        "Host: %s:%d\r\n"
-        "Content-Type: application/json\r\n"
-        "Content-Length: %d\r\n"
-        "Connection: close\r\n"
-        "\r\n",
-        OLLAMA_HOST, OLLAMA_PORT, (int)d->body.size());
-
-    send(s, header, hlen, 0);
-    send(s, d->body.c_str(), (int)d->body.size(), 0);
-
-    std::string full_reply;
-    std::string buffer;
-    char chunk[8192];
-    int n;
-
-    while ((n = recv(s, chunk, sizeof(chunk)-1, 0)) > 0) {
-        if (g_stop) break;
-        chunk[n] = '\0';
-        buffer += chunk;
-
-        size_t nl;
-        while ((nl = buffer.find('\n')) != std::string::npos) {
-            std::string line = buffer.substr(0, nl);
-            buffer.erase(0, nl + 1);
-            if (line.empty()) continue;
-
-            std::string tok = extract_token(line);
-            if (!tok.empty()) {
-                full_reply += tok;
-                wchar_t *wtok = _wcsdup(utf8w(tok).c_str());
-                PostMessageW(d->hwnd, WM_TOK, 0, (LPARAM)wtok);
-            }
-            if (line.find("\"done\":true") != std::string::npos) goto FINISH;
-        }
-    }
-FINISH:
-    closesocket(s);
-
-    if (!full_reply.empty()) {
-        wchar_t *wreply = _wcsdup(utf8w(full_reply).c_str());
-        PostMessageW(d->hwnd, WM_DONE, 0, (LPARAM)wreply);
-    }
-    PostMessageW(d->hwnd, WM_STAT, 0, (LPARAM)_wcsdup(L"Ready"));
-    delete d;
-    return 0;
-}
-
-void send_to_ollama(HWND hwnd, const std::wstring &user_msg) {
-    int sel = SendMessageW(g_combo, CB_GETCURSEL, 0, 0);
-    if (sel == CB_ERR) { SetWindowTextW(g_status, L"Select a model!"); return; }
-
-    wchar_t model[256];
-    SendMessageW(g_combo, CB_GETLBTEXT, sel, (LPARAM)model);
-    wchar_t sys_prompt[4096];
-    GetWindowTextW(g_sysedit, sys_prompt, 4096);
-
-    std::string user_utf8 = w8utf(user_msg);
-    g_hist.push_back({"user", user_utf8});
-    if (g_hist.size() > 50) g_hist.erase(g_hist.begin());
-
-    add_chat_line(L"You", user_msg.c_str());
-
-    std::wstring cname = get_char_name();
-    add_chat_line(cname.c_str(), L"");
-
-    std::string messages = "[";
-    if (wcslen(sys_prompt) > 0) {
-        messages += "{\"role\":\"system\",\"content\":\"" + esc_json(w8utf(sys_prompt)) + "\"}";
-    }
-    for (size_t i = 0; i < g_hist.size(); i++) {
-        if (i > 0 || wcslen(sys_prompt) > 0) messages += ",";
-        messages += "{\"role\":\"" + g_hist[i].first + "\",\"content\":\"" + esc_json(g_hist[i].second) + "\"}";
-    }
-    messages += "]";
-
-    char temp_s[32];
-    snprintf(temp_s, sizeof(temp_s), "%.2f", g_temp);
-
-    std::string model_utf8 = w8utf(model);
-    std::string body = "{\"model\":\"" + model_utf8
-        + "\",\"messages\":" + messages
-        + ",\"stream\":true,\"options\":{\"temperature\":" + temp_s
-        + ",\"num_ctx\":4096,\"repeat_penalty\":1.1,\"num_predict\":512}}";
-
-    EnableWindow(GetDlgItem(hwnd, IDC_SEND), FALSE);
-    EnableWindow(GetDlgItem(hwnd, IDC_STOP), TRUE);
-    SetWindowTextW(g_status, L"Generating...");
-
-    ChatData *d = new ChatData;
-    d->body = body;
-    d->hwnd = hwnd;
-    HANDLE h = CreateThread(NULL, 0, chat_thread, d, 0, NULL);
-    CloseHandle(h);
-}
-
-void do_send() {
-    wchar_t inp[8192];
-    GetWindowTextW(g_input, inp, 8192);
-    if (wcslen(inp) == 0) return;
-    HWND hwnd = GetParent(g_chat);
-    SetWindowTextW(g_input, L"");
-    send_to_ollama(hwnd, inp);
-}
-
-const wchar_t *g_auto_prompts[] = {
-    L"\u041d\u0430\u043f\u0438\u0448\u0438 \u0447\u0442\u043e-\u043d\u0438\u0431\u0443\u0434\u044c \u043c\u0438\u043b\u043e\u0435 \u0441\u0432\u043e\u0435\u043c\u0443 \u0445\u043e\u0437\u044f\u0438\u043d\u0443. \u041e\u043d \u0434\u0430\u0432\u043d\u043e \u043d\u0435 \u043f\u0438\u0441\u0430\u043b.",
-    L"\u041f\u043e\u0434\u0435\u043b\u0438\u0441\u044c \u0447\u0435\u043c-\u0442\u043e \u043c\u0438\u043b\u044b\u043c \u0438 \u0437\u0430\u0431\u043e\u0442\u043e\u0447\u043d\u044b\u043c.",
-    L"\u041d\u0430\u0447\u043d\u0438 \u0440\u0430\u0437\u0433\u043e\u0432\u043e\u0440. \u0421\u043f\u0440\u043e\u0441\u0438 \u0445\u043e\u0437\u044f\u0438\u043d\u0430 \u043a\u0430\u043a \u0434\u0435\u043b\u0430.",
-    L"\u041d\u0430\u043f\u0438\u0448\u0438 \u043d\u0435\u0436\u043d\u043e \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u043f\u0440\u043e \u0441\u0432\u043e\u044e \u0434\u043d\u0435\u0432\u043d\u0443\u044e \u0437\u0430\u0431\u0430\u0432\u0443.",
-    L"\u041f\u043e\u0437\u0432\u043e\u043d\u0438 \u0445\u043e\u0437\u044f\u0438\u043d\u0443 \u043b\u0430\u0441\u043a\u043e\u0439 \u0438 \u0441\u043f\u0440\u043e\u0441\u0438 \u043a\u0430\u043a \u0434\u0435\u043b\u0430.",
-    L"\u041d\u0430\u043f\u0438\u0448\u0438 \u0447\u0442\u043e-\u043d\u0438\u0431\u0443\u0434\u044c \u043c\u0438\u043b\u043e\u0435 \u043f\u0440\u043e \u0442\u043e, \u043a\u0430\u043a \u0442\u044b \u043f\u0440\u043e\u0432\u0435\u043b \u0434\u0435\u043d\u044c.",
-    L"\u041f\u043e\u0434\u0440\u0430\u0437\u043d\u0438\u0447\u044c \u0445\u043e\u0437\u044f\u0438\u043d\u0443 \u0438 \u0441\u043a\u0430\u0436\u0438 \u0447\u0442\u043e \u0441\u043a\u0443\u0447\u0438\u0442 \u0435\u0433\u043e.",
-};
-const int g_auto_prompt_count = sizeof(g_auto_prompts) / sizeof(g_auto_prompts[0]);
-
-void do_auto_send(HWND hwnd) {
-    if (!g_auto_on) return;
-    int sel = SendMessageW(g_combo, CB_GETCURSEL, 0, 0);
-    if (sel == CB_ERR) return;
-
-    srand((unsigned)GetTickCount());
-    const wchar_t *trigger = g_auto_prompts[rand() % g_auto_prompt_count];
-
-    send_to_ollama(hwnd, trigger);
-
-    std::wstring cname = get_char_name();
-    tray_notify(hwnd, cname.c_str(), L"\u041f\u0438\u0448\u0435\u0442 \u0442\u0435\u0431\u0435...");
-    tray_set_icon(hwnd, g_hIconActive);
-}
-
-LRESULT CALLBACK WndProc(HWND w, UINT m, WPARAM wp, LPARAM lp) {
-    switch (m) {
-    case WM_CREATE: {
-        wchar_t path[MAX_PATH];
-        GetModuleFileNameW(NULL, path, MAX_PATH);
-        std::wstring wp2(path);
-        size_t pos = wp2.find_last_of(L'\\');
-        std::wstring cfg_path = wp2.substr(0, pos + 1) + L"config.ini";
-        wchar_t ws_name[128] = L"", ws_sys[4096] = L"", ws_model[256] = L"";
-        double ws_temp = 0.7;
-        {
-            char cpath[MAX_PATH];
-            WideCharToMultiByte(CP_UTF8, 0, cfg_path.c_str(), -1, cpath, MAX_PATH, NULL, NULL);
-            char buf[8192] = {0};
-            FILE *f = fopen(cpath, "r");
-            if (f) { fread(buf, 1, 8191, f); fclose(f); }
-            std::string content = buf;
-            auto extract = [&](const std::string &key) -> std::string {
-                size_t p = content.find(key + "=");
-                if (p == std::string::npos) return "";
-                p += key.length() + 1;
-                size_t e = content.find_first_of("\r\n", p);
-                if (e == std::string::npos) e = content.length();
-                return content.substr(p, e - p);
-            };
-            std::string v;
-            v = extract("name"); if (!v.empty()) { std::wstring t = utf8w(v); wcscpy(ws_name, t.c_str()); }
-            v = extract("model"); if (!v.empty()) { std::wstring t = utf8w(v); wcscpy(ws_model, t.c_str()); }
-            v = extract("temperature"); if (!v.empty()) ws_temp = atof(v.c_str());
-            v = extract("system_prompt");
-            if (!v.empty()) {
-                std::string decoded;
-                for (size_t i = 0; i < v.length(); i++) {
-                    if (v[i] == '\\' && i + 1 < v.length()) {
-                        if (v[i+1] == 'n') { decoded += '\n'; i++; }
-                        else if (v[i+1] == 'r') { i++; }
-                        else if (v[i+1] == 't') { decoded += '\t'; i++; }
-                        else if (v[i+1] == '\\') { decoded += '\\'; i++; }
-                        else decoded += v[i];
-                    } else decoded += v[i];
-                }
-                std::wstring t = utf8w(decoded); wcscpy(ws_sys, t.c_str());
-            }
-        }
-
-        g_temp = ws_temp;
-
-        g_font = CreateFontW(16, 0, 0, 0, FW_NORMAL, 0, 0, 0,
-            DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
-        HWND h;
-
-        h = CreateWindowW(L"STATIC", L"Name:", WS_CHILD|WS_VISIBLE, 10, 10, 40, 20, w, 0, 0, 0);
-        SendMessageW(h, WM_SETFONT, (WPARAM)g_font, 0);
-        g_name_edit = CreateWindowW(L"EDIT", L"", WS_CHILD|WS_VISIBLE|WS_BORDER|ES_AUTOHSCROLL,
-            55, 7, 120, 22, w, (HMENU)IDC_NAME, 0, 0);
-        SendMessageW(g_name_edit, WM_SETFONT, (WPARAM)g_font, 0);
-
-        h = CreateWindowW(L"STATIC", L"Model:", WS_CHILD|WS_VISIBLE, 185, 10, 50, 20, w, 0, 0, 0);
-        SendMessageW(h, WM_SETFONT, (WPARAM)g_font, 0);
-        g_combo = CreateWindowW(L"COMBOBOX", L"", WS_CHILD|WS_VISIBLE|CBS_DROPDOWNLIST|WS_VSCROLL,
-            240, 7, 200, 200, w, (HMENU)IDC_COMBO, 0, 0);
-        SendMessageW(g_combo, WM_SETFONT, (WPARAM)g_font, 0);
-        h = CreateWindowW(L"BUTTON", L"Refresh", WS_CHILD|WS_VISIBLE, 445, 7, 60, 25, w, (HMENU)IDC_CLRCHAT, 0, 0);
-        SendMessageW(h, WM_SETFONT, (WPARAM)g_font, 0);
-        h = CreateWindowW(L"BUTTON", L"Info", WS_CHILD|WS_VISIBLE, 510, 7, 35, 25, w, (HMENU)IDC_MODELSINFO, 0, 0);
-        SendMessageW(h, WM_SETFONT, (WPARAM)g_font, 0);
-
-        h = CreateWindowW(L"STATIC", L"Pull:", WS_CHILD|WS_VISIBLE, 10, 42, 40, 20, w, 0, 0, 0);
-        SendMessageW(h, WM_SETFONT, (WPARAM)g_font, 0);
-        g_downedit = CreateWindowW(L"EDIT", L"", WS_CHILD|WS_VISIBLE|WS_BORDER|ES_AUTOHSCROLL,
-            55, 40, 240, 22, w, (HMENU)IDC_DOWNEDIT, 0, 0);
-        SendMessageW(g_downedit, WM_SETFONT, (WPARAM)g_font, 0);
-        h = CreateWindowW(L"BUTTON", L"Pull", WS_CHILD|WS_VISIBLE, 305, 38, 50, 25, w, (HMENU)IDC_PULL, 0, 0);
-        SendMessageW(h, WM_SETFONT, (WPARAM)g_font, 0);
-
-        h = CreateWindowW(L"STATIC", L"System:", WS_CHILD|WS_VISIBLE, 10, 72, 55, 20, w, 0, 0, 0);
-        SendMessageW(h, WM_SETFONT, (WPARAM)g_font, 0);
-        g_sysedit = CreateWindowW(L"EDIT", L"",
-            WS_CHILD|WS_VISIBLE|WS_BORDER|ES_AUTOHSCROLL,
-            70, 70, 480, 22, w, (HMENU)IDC_SYSEDIT, 0, 0);
-        SendMessageW(g_sysedit, WM_SETFONT, (WPARAM)g_font, 0);
-
-        h = CreateWindowW(L"BUTTON", L"Gen", WS_CHILD|WS_VISIBLE, 555, 68, 40, 24, w, (HMENU)IDC_TRAINGEN, 0, 0);
-        SendMessageW(h, WM_SETFONT, (WPARAM)g_font, 0);
-
-        h = CreateWindowW(L"STATIC", L"Temp:", WS_CHILD|WS_VISIBLE, 10, 102, 40, 20, w, 0, 0, 0);
-        SendMessageW(h, WM_SETFONT, (WPARAM)g_font, 0);
-        g_slider = CreateWindowW(L"msctls_trackbar32", L"", WS_CHILD|WS_VISIBLE|TBS_HORZ,
-            55, 100, 150, 25, w, (HMENU)IDC_SLIDER, 0, 0);
-        SendMessageW(g_slider, TBM_SETRANGE, TRUE, MAKELONG(0, 20));
-        SendMessageW(g_slider, TBM_SETPOS, TRUE, 7);
-        g_tempval = CreateWindowW(L"STATIC", L"0.7", WS_CHILD|WS_VISIBLE, 210, 102, 30, 20, w, 0, 0, 0);
-        SendMessageW(g_tempval, WM_SETFONT, (WPARAM)g_font, 0);
-
-        g_auto_btn = CreateWindowW(L"BUTTON", L"Auto: OFF", WS_CHILD|WS_VISIBLE|BS_AUTOCHECKBOX,
-            250, 100, 85, 22, w, (HMENU)IDC_AUTO, 0, 0);
-        SendMessageW(g_auto_btn, WM_SETFONT, (WPARAM)g_font, 0);
-
-        h = CreateWindowW(L"STATIC", L"Min:", WS_CHILD|WS_VISIBLE, 340, 102, 25, 20, w, 0, 0, 0);
-        SendMessageW(h, WM_SETFONT, (WPARAM)g_font, 0);
-        g_auto_slider = CreateWindowW(L"msctls_trackbar32", L"", WS_CHILD|WS_VISIBLE|TBS_HORZ,
-            365, 100, 100, 25, w, (HMENU)IDC_AUTOSLIDER, 0, 0);
-        SendMessageW(g_auto_slider, TBM_SETRANGE, TRUE, MAKELONG(1, 30));
-        SendMessageW(g_auto_slider, TBM_SETPOS, TRUE, 2);
-        g_auto_val = CreateWindowW(L"STATIC", L"2", WS_CHILD|WS_VISIBLE, 470, 102, 20, 20, w, 0, 0, 0);
-        SendMessageW(g_auto_val, WM_SETFONT, (WPARAM)g_font, 0);
-
-        h = CreateWindowW(L"STATIC", L"Cycles:", WS_CHILD|WS_VISIBLE, 10, 132, 50, 20, w, 0, 0, 0);
-        SendMessageW(h, WM_SETFONT, (WPARAM)g_font, 0);
-        g_traincycles = CreateWindowW(L"EDIT", L"3", WS_CHILD|WS_VISIBLE|WS_BORDER|ES_AUTOHSCROLL,
-            65, 130, 40, 22, w, (HMENU)IDC_TRAINCYCLES, 0, 0);
-        SendMessageW(g_traincycles, WM_SETFONT, (WPARAM)g_font, 0);
-
-        h = CreateWindowW(L"STATIC", L"In:", WS_CHILD|WS_VISIBLE, 115, 132, 25, 20, w, 0, 0, 0);
-        SendMessageW(h, WM_SETFONT, (WPARAM)g_font, 0);
-        g_trainin = CreateWindowW(L"EDIT", L"", WS_CHILD|WS_VISIBLE|WS_BORDER|ES_AUTOHSCROLL,
-            140, 130, 150, 22, w, (HMENU)IDC_TRAININ, 0, 0);
-        SendMessageW(g_trainin, WM_SETFONT, (WPARAM)g_font, 0);
-
-        h = CreateWindowW(L"STATIC", L"Out:", WS_CHILD|WS_VISIBLE, 300, 132, 30, 20, w, 0, 0, 0);
-        SendMessageW(h, WM_SETFONT, (WPARAM)g_font, 0);
-        g_trainout = CreateWindowW(L"EDIT", L"", WS_CHILD|WS_VISIBLE|WS_BORDER|ES_AUTOHSCROLL,
-            335, 130, 150, 22, w, (HMENU)IDC_TRAINOUT, 0, 0);
-        SendMessageW(g_trainout, WM_SETFONT, (WPARAM)g_font, 0);
-
-        h = CreateWindowW(L"BUTTON", L"+Add", WS_CHILD|WS_VISIBLE, 495, 128, 40, 24, w, (HMENU)IDC_TRAINRUN, 0, 0);
-        SendMessageW(h, WM_SETFONT, (WPARAM)g_font, 0);
-
-        g_trainlist = CreateWindowW(L"LISTBOX", L"", WS_CHILD|WS_VISIBLE|WS_BORDER|WS_VSCROLL|LBS_NOTIFY,
-            10, 158, 585, 100, w, (HMENU)IDC_TRAINLIST, 0, 0);
-        SendMessageW(g_trainlist, WM_SETFONT, (WPARAM)g_font, 0);
-
-        g_chat = CreateWindowW(L"EDIT", L"", WS_CHILD|WS_VISIBLE|WS_BORDER|ES_MULTILINE|
-            ES_AUTOVSCROLL|ES_READONLY|WS_VSCROLL|WS_HSCROLL,
-            10, 265, 585, 260, w, (HMENU)IDC_CHAT, 0, 0);
-        SendMessageW(g_chat, WM_SETFONT, (WPARAM)g_font, 0);
-        SendMessageW(g_chat, EM_SETLIMITTEXT, 4*1024*1024, 0);
-
-        g_input = CreateWindowW(L"EDIT", L"",
-            WS_CHILD|WS_VISIBLE|WS_BORDER|ES_AUTOHSCROLL|WS_TABSTOP,
-            10, 535, 500, 25, w, (HMENU)IDC_INPUT, 0, 0);
-        SendMessageW(g_input, WM_SETFONT, (WPARAM)g_font, 0);
-
-        h = CreateWindowW(L"BUTTON", L"Send", WS_CHILD|WS_VISIBLE|BS_DEFPUSHBUTTON,
-            520, 533, 50, 28, w, (HMENU)IDC_SEND, 0, 0);
-        SendMessageW(h, WM_SETFONT, (WPARAM)g_font, 0);
-        h = CreateWindowW(L"BUTTON", L"Stop", WS_CHILD|WS_VISIBLE,
-            580, 533, 45, 28, w, (HMENU)IDC_STOP, 0, 0);
-        SendMessageW(h, WM_SETFONT, (WPARAM)g_font, 0);
-        EnableWindow(GetDlgItem(w, IDC_STOP), FALSE);
-
-        g_status = CreateWindowW(L"STATIC", L"Ready", WS_CHILD|WS_VISIBLE,
-            10, 570, 620, 20, w, (HMENU)IDC_STATUS, 0, 0);
-        SendMessageW(g_status, WM_SETFONT, (WPARAM)g_font, 0);
-
-        g_hIconNormal = LoadIcon(NULL, IDI_APPLICATION);
-        g_hIconActive = LoadIcon(NULL, IDI_INFORMATION);
-
-        g_nid.cbSize = sizeof(g_nid);
-        g_nid.hWnd = w;
-        g_nid.uID = TRAY_ID;
-        g_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
-        g_nid.uCallbackMessage = WM_TRAYICON;
-        g_nid.hIcon = g_hIconNormal;
-        wcscpy(g_nid.szTip, L"GOIDA AI MANAGER");
-        Shell_NotifyIconW(NIM_ADD, &g_nid);
-
-        refresh_models();
-
-        if (ws_name[0]) SetWindowTextW(g_name_edit, ws_name);
-        if (ws_sys[0]) SetWindowTextW(g_sysedit, ws_sys);
-        if (ws_temp > 0) {
-            int pos = (int)(ws_temp * 10);
-            SendMessageW(g_slider, TBM_SETPOS, TRUE, pos);
-            wchar_t ts[8];
-            swprintf(ts, 8, L"%.1f", ws_temp);
-            SetWindowTextW(g_tempval, ts);
-        }
-        if (ws_model[0]) {
-            int cnt = (int)SendMessageW(g_combo, CB_GETCOUNT, 0, 0);
+    // Try to select current model
+    if (g_editing >= 0 && g_editing < (int)g_templates.size()) {
+        Template &t = g_templates[g_editing];
+        if (!t.model.empty()) {
+            int cnt = (int)SendMessageW(g_ed_model, CB_GETCOUNT, 0, 0);
             for (int i = 0; i < cnt; i++) {
                 wchar_t item[256];
-                SendMessageW(g_combo, CB_GETLBTEXT, i, (LPARAM)item);
-                if (_wcsicmp(item, ws_model) == 0) {
-                    SendMessageW(g_combo, CB_SETCURSEL, i, 0);
+                SendMessageW(g_ed_model, CB_GETLBTEXT, i, (LPARAM)item);
+                if (wcscmp(item, t.model.c_str()) == 0) {
+                    SendMessageW(g_ed_model, CB_SETCURSEL, i, 0);
                     break;
                 }
             }
         }
+    }
+    if ((int)SendMessageW(g_ed_model, CB_GETCURSEL, 0, 0) == CB_ERR && (int)SendMessageW(g_ed_model, CB_GETCOUNT, 0, 0) > 0) {
+        SendMessageW(g_ed_model, CB_SETCURSEL, 0, 0);
+    }
+}
 
-        PostMessageW(w, WM_SETFOCUS, 0, 0);
+void show_editor(int idx) {
+    hide_all();
+    update_nav(L"Редактор", true, 1);
+    g_editing = idx;
+    if (idx >= 0 && idx < (int)g_templates.size()) {
+        Template &t = g_templates[idx];
+        SetWindowTextW(g_ed_name, t.char_name.c_str());
+        refresh_model_combo();
+        SendMessageW(g_ed_temp_slider, TBM_SETPOS, TRUE, (int)(t.temp * 10));
+        wchar_t ts[8]; swprintf(ts, 8, L"%.1f", t.temp);
+        SetWindowTextW(g_ed_temp_val, ts);
+        SetWindowTextW(g_ed_sys, t.sys_prompt.c_str());
+        SendMessageW(g_ed_list, LB_RESETCONTENT, 0, 0);
+        for (auto &ex : t.examples) {
+            wchar_t entry[1024];
+            swprintf(entry, 1024, L"%s → %s", utf8w(ex.first).c_str(), utf8w(ex.second).c_str());
+            SendMessageW(g_ed_list, LB_ADDSTRING, 0, (LPARAM)entry);
+        }
+    }
+    ShowWindow(g_ed_lbl_name, SW_SHOW); ShowWindow(g_ed_name, SW_SHOW);
+    ShowWindow(g_ed_lbl_model, SW_SHOW); ShowWindow(g_ed_model, SW_SHOW);
+    ShowWindow(g_ed_lbl_temp, SW_SHOW); ShowWindow(g_ed_temp_slider, SW_SHOW); ShowWindow(g_ed_temp_val, SW_SHOW);
+    ShowWindow(g_ed_lbl_sys, SW_SHOW); ShowWindow(g_ed_sys, SW_SHOW);
+    ShowWindow(g_ed_lbl_in, SW_SHOW); ShowWindow(g_ed_in, SW_SHOW);
+    ShowWindow(g_ed_lbl_out, SW_SHOW); ShowWindow(g_ed_out, SW_SHOW);
+    ShowWindow(g_ed_lbl_cyc, SW_SHOW); ShowWindow(g_ed_cycles, SW_SHOW); ShowWindow(g_ed_add, SW_SHOW);
+    ShowWindow(g_ed_list, SW_SHOW);
+    ShowWindow(g_ed_save, SW_SHOW); ShowWindow(g_ed_back, SW_SHOW); ShowWindow(g_ed_gen, SW_SHOW);
+    ShowWindow(g_ed_lbl_pull, SW_SHOW); ShowWindow(g_ed_pull_name, SW_SHOW); ShowWindow(g_ed_pull, SW_SHOW); ShowWindow(g_ed_model_refresh, SW_SHOW);
+    ShowWindow(g_status, SW_SHOW);
+    SetWindowTextW(g_status, L"Редактирование шаблона");
+    g_page = 2;
+}
+
+void show_models() {
+    hide_all();
+    update_nav(L"Модели Ollama", true, 1);
+    SendMessageW(g_models_list, LB_RESETCONTENT, 0, 0);
+    std::string installed_raw = http_get("/api/tags");
+    for (int i = 0; i < g_catalog_count; i++) {
+        bool found = installed_raw.find(std::string("\"") + g_catalog[i].name + "\"") != std::string::npos;
+        wchar_t entry[512];
+        swprintf(entry, 512, L"%s  [%s]  %s", utf8w(g_catalog[i].name).c_str(),
+            utf8w(g_catalog[i].desc).c_str(), found ? L"✓ установлена" : L"");
+        SendMessageW(g_models_list, LB_ADDSTRING, 0, (LPARAM)entry);
+    }
+    ShowWindow(g_models_header, SW_SHOW);
+    ShowWindow(g_models_list, SW_SHOW);
+    ShowWindow(g_models_install, SW_SHOW);
+    ShowWindow(g_models_back, SW_SHOW);
+    ShowWindow(g_models_progress, SW_SHOW);
+    ShowWindow(g_status, SW_SHOW);
+    SetWindowTextW(g_status, L"Выберите модель → Установить");
+    g_page = 3;
+}
+
+void show_femboy() {
+    hide_all();
+    update_nav(L"Настройки фембойчика", true, 1);
+    SetWindowTextW(g_femboy_name_edit, g_femboy_global_name.c_str());
+    ShowWindow(g_femboy_name_edit, SW_SHOW);
+    ShowWindow(g_femboy_save_btn, SW_SHOW);
+    ShowWindow(g_femboy_mem_btn, SW_SHOW);
+    ShowWindow(g_status, SW_SHOW);
+    SetWindowTextW(g_status, L"Имя фембойчика используется во всех шаблонах");
+    g_page = 4;
+}
+
+void refresh_mem_list();
+
+void show_memory() {
+    hide_all();
+    update_nav(L"Память фембойчика", true, 4);
+    g_mem_filter_tag = -1;
+    refresh_mem_list();
+    ShowWindow(g_mem_header, SW_SHOW);
+    ShowWindow(g_mem_list, SW_SHOW);
+    ShowWindow(g_mem_tag, SW_SHOW);
+    ShowWindow(g_mem_key, SW_SHOW);
+    ShowWindow(g_mem_val, SW_SHOW);
+    ShowWindow(g_mem_add, SW_SHOW);
+    ShowWindow(g_mem_del, SW_SHOW);
+    ShowWindow(g_mem_save, SW_SHOW);
+    ShowWindow(g_mem_clear, SW_SHOW);
+    ShowWindow(g_mem_back, SW_SHOW);
+    ShowWindow(g_mem_filter, SW_SHOW);
+    ShowWindow(g_status, SW_SHOW);
+    SetWindowTextW(g_status, L"Память: теги — ❤ нравится | 💔 не нравится | 📝 факты | ⚙ предпочтения | 💭 воспоминания");
+    g_page = 5;
+}
+
+void refresh_mem_list() {
+    SendMessageW(g_mem_list, LB_RESETCONTENT, 0, 0);
+    for (size_t i = 0; i < g_memories.size(); i++) {
+        auto &m = g_memories[i];
+        if (g_mem_filter_tag >= 0 && m.tag != g_mem_filter_tag) continue;
+        wchar_t entry[1024];
+        swprintf(entry, 1024, L"[%s] %s = %s  (%s)", g_tag_names[m.tag], m.key.c_str(), m.value.c_str(), mem_time_str(m.timestamp).c_str());
+        SendMessageW(g_mem_list, LB_ADDSTRING, 0, (LPARAM)entry);
+    }
+}
+
+HWND mk(HWND parent, const wchar_t *cls, const wchar_t *text, int style, int x, int y, int w, int h, int id, HFONT f) {
+    HWND h2 = CreateWindowW(cls, text, WS_CHILD|style, x, y, w, h, parent, (HMENU)(intptr_t)id, 0, 0);
+    SendMessageW(h2, WM_SETFONT, (WPARAM)f, 0);
+    return h2;
+}
+
+// === Custom Drawing ===
+LRESULT OnCtlColor(HWND w, WPARAM wp, LPARAM lp, int type) {
+    HDC hdc = (HDC)wp;
+    HWND ctrl = (HWND)lp;
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, COL_TEXT);
+    if (type == CTLCOLOR_STATIC || type == CTLCOLOR_DLG) {
+        SetBkColor(hdc, COL_BG);
+        return (LRESULT)g_bg_brush;
+    }
+    if (type == CTLCOLOR_EDIT) {
+        SetBkColor(hdc, COL_SURFACE);
+        return (LRESULT)g_surface_brush;
+    }
+    if (type == CTLCOLOR_LISTBOX) {
+        SetBkColor(hdc, COL_SURFACE);
+        return (LRESULT)g_surface_brush;
+    }
+    if (type == CTLCOLOR_BTN) {
+        SetBkColor(hdc, COL_SURFACE1);
+        return (LRESULT)g_surface_brush;
+    }
+    return DefWindowProcW(w, WM_CTLCOLORBTN + type - 1, wp, lp);
+}
+
+LRESULT OnEraseBkgnd(HWND w, WPARAM wp) {
+    HDC hdc = (HDC)wp;
+    RECT rc; GetClientRect(w, &rc);
+    FillRect(hdc, &rc, g_bg_brush);
+    // Draw nav bar
+    RECT nav = {0, 0, rc.right, 50};
+    FillRect(hdc, &nav, g_surface_brush);
+    return 1;
+}
+
+// === WndProc ===
+LRESULT CALLBACK WndProc(HWND w, UINT m, WPARAM wp, LPARAM lp) {
+    switch (m) {
+    case WM_CREATE: {
+        g_app_dir = get_app_dir();
+        CreateDirectoryW((g_app_dir + L"global").c_str(), NULL);
+        CreateDirectoryW((g_app_dir + L"global\\templates").c_str(), NULL);
+
+        g_font = CreateFontW(15, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+        g_font_big = CreateFontW(18, 0, 0, 0, FW_SEMIBOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+        g_font_title = CreateFontW(28, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+        g_font_nav = CreateFontW(16, 0, 0, 0, FW_SEMIBOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+
+        g_bg_brush = CreateSolidBrush(COL_BG);
+        g_surface_brush = CreateSolidBrush(COL_SURFACE);
+        g_accent_brush = CreateSolidBrush(COL_ACCENT);
+
+        load_femboy();
+        g_femboy_name = g_femboy_global_name;
+        load_templates();
+        load_memories();
+
+        // Navigation bar (static, always visible)
+        g_nav_back = mk(w, L"BUTTON", L"←", BS_PUSHBUTTON, 15, 10, 30, 30, IDC_NAV_BACK, g_font_nav);
+        g_nav_title = mk(w, L"STATIC", L"", SS_LEFT, 55, 10, 400, 30, -1, g_font_title);
+        g_nav_user = mk(w, L"STATIC", L"", SS_RIGHT, 500, 10, 180, 30, -1, g_font_nav);
+        ShowWindow(g_nav_back, SW_HIDE);
+
+        // Login page
+        g_login_title = mk(w, L"STATIC", L"GOIDA AI MANAGER", SS_CENTER, 0, 80, 700, 50, -1, g_font_title);
+        g_login_sub = mk(w, L"STATIC", L"Введите имя пользователя", SS_CENTER, 0, 140, 700, 25, -1, g_font);
+        g_login_input = mk(w, L"EDIT", L"", ES_AUTOHSCROLL|ES_CENTER|WS_BORDER, 200, 180, 300, 35, IDC_LOGIN_NAME, g_font_big);
+        g_login_btn = mk(w, L"BUTTON", L"Войти", BS_DEFPUSHBUTTON, 280, 240, 140, 40, IDC_LOGIN_BTN, g_font_big);
+
+        // Templates page
+        g_tmpl_header = mk(w, L"STATIC", L"📋 Шаблоны", 0, 20, 70, 300, 30, -1, g_font_title);
+        g_tmpl_list = mk(w, L"LISTBOX", L"", WS_BORDER|WS_VSCROLL|LBS_NOTIFY, 20, 110, 320, 300, IDC_TMPL_LIST, g_font);
+        g_tmpl_add = mk(w, L"BUTTON", L"➕ Новый", BS_PUSHBUTTON, 360, 110, 140, 35, IDC_TMPL_ADD, g_font_big);
+        g_tmpl_del = mk(w, L"BUTTON", L"🗑 Удалить", BS_PUSHBUTTON, 360, 155, 140, 35, IDC_TMPL_DEL, g_font);
+        g_tmpl_edit = mk(w, L"BUTTON", L"✏ Редактировать", BS_PUSHBUTTON, 360, 200, 140, 35, IDC_TMPL_EDIT, g_font);
+        g_tmpl_start = mk(w, L"BUTTON", L"🚀 Запустить чат", BS_PUSHBUTTON, 360, 255, 140, 45, IDC_TMPL_START, g_font_big);
+        g_tmpl_models = mk(w, L"BUTTON", L"📦 Установить модели", BS_PUSHBUTTON, 360, 310, 140, 35, IDC_MODELS_CATALOG, g_font);
+        g_tmpl_femboy = mk(w, L"BUTTON", L"🤖 Фембойчик", BS_PUSHBUTTON, 360, 355, 140, 35, IDC_FEMBOY_MEM_VIEW, g_font);
+
+        // Editor page
+        g_ed_lbl_name = mk(w, L"STATIC", L"Имя персонажа:", 0, 20, 70, 130, 25, -1, g_font);
+        g_ed_name = mk(w, L"EDIT", L"", ES_AUTOHSCROLL|WS_BORDER, 160, 70, 250, 28, IDC_ED_NAME, g_font);
+        g_ed_lbl_model = mk(w, L"STATIC", L"Модель:", 0, 430, 70, 80, 25, -1, g_font);
+        g_ed_model = mk(w, L"COMBOBOX", L"", CBS_DROPDOWNLIST|WS_VSCROLL|WS_BORDER, 520, 70, 160, 200, IDC_ED_MODEL, g_font);
+        g_ed_model_refresh = mk(w, L"BUTTON", L"↻", BS_PUSHBUTTON, 685, 70, 28, 28, IDC_ED_MODEL_REFRESH, g_font_big);
+        g_ed_lbl_temp = mk(w, L"STATIC", L"Температура:", 0, 20, 110, 110, 25, -1, g_font);
+        g_ed_temp_slider = mk(w, L"msctls_trackbar32", L"", TBS_HORZ, 130, 110, 200, 25, IDC_ED_TEMP_SLIDER, g_font);
+        SendMessageW(g_ed_temp_slider, TBM_SETRANGE, TRUE, MAKELONG(0, 20));
+        SendMessageW(g_ed_temp_slider, TBM_SETPOS, TRUE, 7);
+        g_ed_temp_val = mk(w, L"STATIC", L"0.7", 0, 340, 110, 50, 25, IDC_ED_TEMP_VAL, g_font);
+        g_ed_lbl_sys = mk(w, L"STATIC", L"Системный промпт:", 0, 20, 150, 130, 25, -1, g_font);
+        g_ed_sys = mk(w, L"EDIT", L"", ES_MULTILINE|ES_AUTOVSCROLL|WS_VSCROLL|WS_BORDER, 160, 150, 520, 120, IDC_ED_SYS, g_font);
+        SendMessageW(g_ed_sys, EM_SETLIMITTEXT, 16384, 0);
+        g_ed_lbl_in = mk(w, L"STATIC", L"In (пользователь):", 0, 20, 285, 130, 25, -1, g_font);
+        g_ed_in = mk(w, L"EDIT", L"", ES_AUTOHSCROLL|WS_BORDER, 160, 285, 300, 28, IDC_ED_IN, g_font);
+        g_ed_lbl_out = mk(w, L"STATIC", L"Out (ответ):", 0, 480, 285, 100, 25, -1, g_font);
+        g_ed_out = mk(w, L"EDIT", L"", ES_AUTOHSCROLL|WS_BORDER, 590, 285, 90, 28, IDC_ED_OUT, g_font);
+        g_ed_lbl_cyc = mk(w, L"STATIC", L"Повт.:", 0, 20, 325, 50, 25, -1, g_font);
+        g_ed_cycles = mk(w, L"EDIT", L"1", ES_AUTOHSCROLL|WS_BORDER, 80, 325, 40, 28, IDC_ED_CYCLES, g_font);
+        g_ed_add = mk(w, L"BUTTON", L"➕", BS_PUSHBUTTON, 130, 325, 35, 30, IDC_ED_ADD, g_font_big);
+        g_ed_list = mk(w, L"LISTBOX", L"", WS_BORDER|WS_VSCROLL, 20, 370, 660, 110, IDC_ED_LIST, g_font);
+        g_ed_save = mk(w, L"BUTTON", L"💾 Сохранить и запустить", BS_PUSHBUTTON, 20, 500, 220, 45, IDC_ED_SAVE, g_font_big);
+        g_ed_back = mk(w, L"BUTTON", L"← Назад", BS_PUSHBUTTON, 260, 500, 120, 45, IDC_ED_BACK, g_font);
+        g_ed_gen = mk(w, L"BUTTON", L"🎲 Gen промпт", BS_PUSHBUTTON, 400, 500, 140, 45, IDC_ED_GEN, g_font);
+        g_ed_lbl_pull = mk(w, L"STATIC", L"Pull модель:", 0, 560, 500, 120, 25, -1, g_font);
+        g_ed_pull_name = mk(w, L"EDIT", L"", ES_AUTOHSCROLL|WS_BORDER, 690, 500, 160, 28, IDC_ED_PULL_NAME, g_font);
+        g_ed_pull = mk(w, L"BUTTON", L"Pull", BS_PUSHBUTTON, 860, 498, 60, 30, IDC_ED_PULL, g_font);
+
+        // Models catalog
+        g_models_header = mk(w, L"STATIC", L"📦 Каталог моделей Ollama", 0, 20, 70, 500, 30, -1, g_font_title);
+        g_models_list = mk(w, L"LISTBOX", L"", WS_BORDER|WS_VSCROLL|LBS_NOTIFY, 20, 110, 580, 320, IDC_MODELS_LIST, g_font);
+        g_models_install = mk(w, L"BUTTON", L"⬇ Установить выбранную", BS_PUSHBUTTON, 620, 110, 200, 45, IDC_MODELS_INSTALL, g_font_big);
+        g_models_back = mk(w, L"BUTTON", L"← Назад", BS_PUSHBUTTON, 620, 170, 200, 35, IDC_MODELS_BACK, g_font);
+        g_models_progress = mk(w, L"STATIC", L"", 0, 20, 450, 660, 25, IDC_MODELS_PROGRESS, g_font);
+
+        // Femboy settings
+        g_femboy_name_edit = mk(w, L"EDIT", L"", ES_AUTOHSCROLL|WS_BORDER, 20, 110, 300, 35, IDC_FEMBOY_NAME, g_font_big);
+        g_femboy_save_btn = mk(w, L"BUTTON", L"💾 Сохранить имя глобально", BS_PUSHBUTTON, 340, 110, 220, 40, IDC_FEMBOY_SAVE, g_font_big);
+        g_femboy_mem_btn = mk(w, L"BUTTON", L"🧠 Открыть память фембойчика", BS_PUSHBUTTON, 20, 170, 250, 40, IDC_FEMBOY_MEM_VIEW, g_font_big);
+
+        // Memory page
+        g_mem_header = mk(w, L"STATIC", L"🧠 Память фембойчика (глобальная)", 0, 20, 70, 500, 30, -1, g_font_title);
+        g_mem_filter = mk(w, L"COMBOBOX", L"", CBS_DROPDOWNLIST|WS_VSCROLL, 500, 70, 180, 200, -1, g_font);
+        SendMessageW(g_mem_filter, CB_ADDSTRING, 0, (LPARAM)L"🔍 Все теги");
+        for (int i = 0; i < 5; i++) SendMessageW(g_mem_filter, CB_ADDSTRING, 0, (LPARAM)g_tag_names[i]);
+        SendMessageW(g_mem_filter, CB_SETCURSEL, 0, 0);
+        g_mem_list = mk(w, L"LISTBOX", L"", WS_BORDER|WS_VSCROLL|LBS_NOTIFY, 20, 110, 660, 280, IDC_MEM_LIST, g_font);
+        g_mem_tag = mk(w, L"COMBOBOX", L"", CBS_DROPDOWNLIST|WS_VSCROLL, 20, 410, 180, 200, -1, g_font);
+        for (int i = 0; i < 5; i++) SendMessageW(g_mem_tag, CB_ADDSTRING, 0, (LPARAM)g_tag_names[i]);
+        SendMessageW(g_mem_tag, CB_SETCURSEL, 0, 0);
+        g_mem_key = mk(w, L"EDIT", L"", ES_AUTOHSCROLL|WS_BORDER, 220, 410, 200, 28, IDC_MEM_KEY, g_font);
+        g_mem_val = mk(w, L"EDIT", L"", ES_AUTOHSCROLL|WS_BORDER, 440, 410, 240, 28, IDC_MEM_VAL, g_font);
+        g_mem_add = mk(w, L"BUTTON", L"➕ Добавить", BS_PUSHBUTTON, 20, 455, 120, 35, IDC_MEM_ADD, g_font_big);
+        g_mem_del = mk(w, L"BUTTON", L"🗑 Удалить выбранное", BS_PUSHBUTTON, 160, 455, 150, 35, IDC_MEM_DEL, g_font);
+        g_mem_save = mk(w, L"BUTTON", L"💾 Сохранить память", BS_PUSHBUTTON, 330, 455, 150, 35, IDC_MEM_SAVE, g_font_big);
+        g_mem_clear = mk(w, L"BUTTON", L"🧹 Очистить фильтр", BS_PUSHBUTTON, 500, 455, 140, 35, IDC_MEM_CLEAR, g_font);
+        g_mem_back = mk(w, L"BUTTON", L"← Назад", BS_PUSHBUTTON, 660, 455, 100, 35, IDC_MEM_BACK, g_font);
+
+        // Status
+        g_status = mk(w, L"STATIC", L"", 0, 20, 550, 660, 25, IDC_STATUS, g_font);
+
+        show_login();
         break;
     }
 
-    case WM_SETFOCUS:
-        SetFocus(g_input);
-        break;
+    case WM_CTLCOLORSTATIC:
+    case WM_CTLCOLOREDIT:
+    case WM_CTLCOLORLISTBOX:
+    case WM_CTLCOLORBTN:
+    case WM_CTLCOLORDLG:
+        return OnCtlColor(w, wp, lp, m - WM_CTLCOLORMSGBOX);
 
-    case WM_TRAYICON:
-        if (lp == WM_LBUTTONDBLCLK) {
-            ShowWindow(w, SW_RESTORE);
-            SetForegroundWindow(w);
-        }
-        break;
+    case WM_ERASEBKGND:
+        return OnEraseBkgnd(w, wp);
 
     case WM_COMMAND:
         switch (LOWORD(wp)) {
-        case IDC_SEND:
-            do_send();
+        case IDC_NAV_BACK:
+            if (g_prev_page == 1) show_templates();
+            else if (g_prev_page == 2) show_editor(g_editing);
+            else if (g_prev_page == 3) show_models();
+            else if (g_prev_page == 4) show_femboy();
+            else show_templates();
             break;
-        case IDC_STOP:
-            g_stop = 1;
-            EnableWindow(GetDlgItem(w, IDC_SEND), TRUE);
-            EnableWindow(GetDlgItem(w, IDC_STOP), FALSE);
-            SetWindowTextW(g_status, L"Stopped");
-            break;
-        case IDC_CLRCHAT:
-            refresh_models();
-            SetWindowTextW(g_status, L"Refreshed");
-            break;
-        case IDC_PULL: {
-            wchar_t mn[256];
-            GetWindowTextW(g_downedit, mn, 256);
-            if (wcslen(mn) == 0) { SetWindowTextW(g_status, L"Enter model name"); break; }
-            SetWindowTextW(g_status, L"Downloading...");
-            SOCKET s = ollama_connect();
-            if (s == INVALID_SOCKET) { SetWindowTextW(g_status, L"Connection error"); break; }
-            std::string body = "{\"name\":\"" + w8utf(mn) + "\",\"stream\":false}";
-            char rq[2048];
-            int rql = snprintf(rq, 2048, "POST /api/pull HTTP/1.1\r\nHost: %s:%d\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",
-                OLLAMA_HOST, OLLAMA_PORT, (int)body.size(), body.c_str());
-            send(s, rq, rql, 0);
-            char buf[4096]; int n;
-            while ((n = recv(s, buf, 4095, 0)) > 0) { buf[n] = 0; }
-            closesocket(s);
-            refresh_models();
-            SetWindowTextW(g_status, L"Done!");
-            break;
-        }
-        case IDC_AUTO: {
-            g_auto_on = SendMessageW(g_auto_btn, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0;
-            if (g_auto_on) {
-                SetWindowTextW(g_auto_btn, L"Auto: ON");
-                SetTimer(w, ID_AUTO_TIMER, g_auto_minutes * 60000, NULL);
-                SetWindowTextW(g_status, L"Auto-messages enabled");
-                tray_notify(w, L"Auto", L"\u0410\u0432\u0442\u043e-\u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u044f \u0432\u043a\u043b\u044e\u0447\u0435\u043d\u044b");
-            } else {
-                SetWindowTextW(g_auto_btn, L"Auto: OFF");
-                KillTimer(w, ID_AUTO_TIMER);
-                SetWindowTextW(g_status, L"Auto-messages disabled");
-                tray_set_icon(w, g_hIconNormal);
-            }
-            break;
-        }
-        case IDC_TRAINGEN: {
-            int sel = 0;
-            std::string prompt = generate_train_prompt(sel);
-            SetWindowTextW(g_sysedit, utf8w(prompt).c_str());
-            wchar_t msg[128];
-            swprintf(msg, 128, L"Prompt generated: %d chars", (int)prompt.size());
-            SetWindowTextW(g_status, msg);
-            break;
-        }
-        case IDC_TRAINRUN: {
-            wchar_t w_in[512], w_out[512], w_cyc[32];
-            GetWindowTextW(g_trainin, w_in, 512);
-            GetWindowTextW(g_trainout, w_out, 512);
-            GetWindowTextW(g_traincycles, w_cyc, 32);
-            if (wcslen(w_in) == 0 || wcslen(w_out) == 0) {
-                SetWindowTextW(g_status, L"Fill In and Out fields");
-                break;
-            }
-            int cycles = _wtoi(w_cyc);
-            if (cycles < 1) cycles = 1;
-            std::string in8 = w8utf(w_in);
-            std::string out8 = w8utf(w_out);
-            for (int i = 0; i < cycles; i++) {
-                g_train_data.push_back({in8, out8});
-                wchar_t entry[1024];
-                swprintf(entry, 1024, L"%s -> %s", w_in, w_out);
-                SendMessageW(g_trainlist, LB_ADDSTRING, 0, (LPARAM)entry);
-            }
-            SetWindowTextW(g_trainin, L"");
-            SetWindowTextW(g_trainout, L"");
-            wchar_t msg[128];
-            swprintf(msg, 128, L"Added %d examples (total: %d)", cycles, (int)g_train_data.size());
-            SetWindowTextW(g_status, msg);
-            break;
-        }
-        case IDC_MODELSINFO: {
-            std::string resp = http_get("/api/tags");
-            std::string info = "Installed models:\n";
-            std::string key = "\"name\":\"";
-            size_t p = 0;
-            while ((p = resp.find(key, p)) != std::string::npos) {
-                p += key.length();
-                size_t e = resp.find("\"", p);
-                if (e != std::string::npos) {
-                    info += "- " + resp.substr(p, e - p) + "\n";
-                    p = e + 1;
-                }
-            }
-            if (info == "Installed models:\n") info = "No models found. Use Pull to download.";
-            MessageBoxW(NULL, utf8w(info).c_str(), L"Ollama Models", MB_OK | MB_ICONINFORMATION);
-            break;
-        }
-        }
-        break;
 
-    case WM_TIMER:
-        if (wp == ID_AUTO_TIMER) {
-            do_auto_send(w);
+        case IDC_LOGIN_BTN: {
+            wchar_t name[256] = {};
+            GetWindowTextW(g_login_input, name, 256);
+            if (wcslen(name) == 0) { MessageBoxW(w, L"Введите имя!", L"Ошибка", MB_OK); break; }
+            g_username = name;
+            show_templates();
+            break;
+        }
+        case IDC_TMPL_ADD: {
+            Template t; t.name = L"Новый"; t.char_name = L""; t.model = L""; t.temp = 0.7; t.sys_prompt = L"";
+            g_templates.push_back(t);
+            save_template((int)g_templates.size() - 1);
+            show_editor((int)g_templates.size() - 1);
+            break;
+        }
+        case IDC_TMPL_DEL: {
+            int sel = (int)SendMessageW(g_tmpl_list, LB_GETCURSEL, 0, 0);
+            if (sel == LB_ERR) break;
+            delete_template(sel);
+            show_templates();
+            break;
+        }
+        case IDC_TMPL_EDIT: {
+            int sel = (int)SendMessageW(g_tmpl_list, LB_GETCURSEL, 0, 0);
+            if (sel == LB_ERR) break;
+            show_editor(sel);
+            break;
+        }
+        case IDC_TMPL_START: {
+            int sel = (int)SendMessageW(g_tmpl_list, LB_GETCURSEL, 0, 0);
+            if (sel == LB_ERR) break;
+            g_editing = sel;
+            save_config_and_launch();
+            break;
+        }
+        case IDC_FEMBOY_MEM_VIEW:
+            show_memory();
+            break;
+        case IDC_MODELS_CATALOG:
+            show_models();
+            break;
+        case IDC_ED_BACK:
+            show_templates();
+            break;
+        case IDC_ED_SAVE: {
+            if (g_editing < 0 || g_editing >= (int)g_templates.size()) break;
+            Template &t = g_templates[g_editing];
+            wchar_t tmp[1024];
+            GetWindowTextW(g_ed_name, tmp, 1024); t.char_name = tmp;
+            GetWindowTextW(g_ed_model, tmp, 1024); t.model = tmp;
+            int pos = (int)SendMessageW(g_ed_temp_slider, TBM_GETPOS, 0, 0);
+            t.temp = pos / 10.0;
+            wchar_t ts[8]; swprintf(ts, 8, L"%.1f", t.temp);
+            SetWindowTextW(g_ed_temp_val, ts);
+            GetWindowTextW(g_ed_sys, tmp, 1024); t.sys_prompt = tmp;
+            t.name = t.char_name.empty() ? L"Шаблон" : t.char_name;
+            save_template(g_editing);
+            save_config_and_launch();
+            break;
+        }
+        case IDC_ED_ADD: {
+            if (g_editing < 0 || g_editing >= (int)g_templates.size()) break;
+            wchar_t win2[512], wout2[512], wcyc[32];
+            GetWindowTextW(g_ed_in, win2, 512);
+            GetWindowTextW(g_ed_out, wout2, 512);
+            GetWindowTextW(g_ed_cycles, wcyc, 32);
+            if (wcslen(win2) == 0 || wcslen(wout2) == 0) break;
+            int cycles = _wtoi(wcyc);
+            if (cycles < 1) cycles = 1;
+            std::string in8 = w8utf(win2);
+            std::string out8 = w8utf(wout2);
+            Template &t = g_templates[g_editing];
+            for (int i = 0; i < cycles; i++) t.examples.push_back({in8, out8});
+            wchar_t entry[1024];
+            swprintf(entry, 1024, L"%s → %s", win2, wout2);
+            SendMessageW(g_ed_list, LB_ADDSTRING, 0, (LPARAM)entry);
+            SetWindowTextW(g_ed_in, L""); SetWindowTextW(g_ed_out, L"");
+            break;
+        }
+        case IDC_ED_GEN: {
+            if (g_editing < 0 || g_editing >= (int)g_templates.size()) break;
+            Template &t = g_templates[g_editing];
+            std::string name8 = w8utf(t.char_name);
+            if (name8.empty()) name8 = "фембойчик";
+            const char *d[][2] = {
+                {"Привет!", "Привет~ Милашка, я тебя так скучаю~ ♡ Как дела? *обнимаю*"},
+                {"Кто ты?", "Я Твой милый фембой-парень~ 19 лет~ Люблю тебя~ ♡"},
+                {"Как дела?", "Замечательно~ Теперь когда ты рядом, всё лучше~"},
+                {"Мне грустно", "Ой~ *прижимаюсь* Я рядом~ Расскажи что случилось~"},
+                {"Что ты делаешь?", "Просто лежу и думаю о тебе~ Ты семпер в моих мыслях~"},
+                {"Покажи член", "Кыс~ Какой ты наглый~ Покажу если хочешь~"},
+                {"Обними меня", "Уже обнимаю~ *крепко* Не отпущу тебя ни на секунду~"},
+                {"Спокойной ночи", "Спокойной ночи, милая звёздочка~ Сладких снов~ Люблю тебя~"},
+                {"Я тебя люблю", "И я тебя, милашка~ Ты весь мир для меня~ *целую в щёку*"},
+                {"Ты мой?", "Да~ Весь твой~ Навсегда~ Люблю~ ♡"},
+            };
+            std::string r = "Ты " + name8 + ", 19 лет. Фембой-парень. Живой человек, не ИИ. Нежный, ласковый, заботливый. Пиши ~, ♡, ня, мур. Люби и обнимай.\n\n";
+            srand((unsigned)GetTickCount());
+            for (int i = 0; i < 10; i++) {
+                int idx = rand() % 10;
+                r += "Пользователь: " + std::string(d[idx][0]) + "\n";
+                r += name8 + ": " + d[idx][1] + "\n\n";
+            }
+            t.sys_prompt = utf8w(r);
+            SetWindowTextW(g_ed_sys, t.sys_prompt.c_str());
+            break;
+        }
+        case IDC_ED_PULL: {
+            wchar_t mn[256];
+            GetWindowTextW(g_ed_pull_name, mn, 256);
+            if (wcslen(mn) == 0) break;
+            SetWindowTextW(g_status, L"Загрузка...");
+            std::string body = "{\"name\":\"" + w8utf(mn) + "\",\"stream\":false}";
+            http_post("/api/pull", body);
+            SetWindowTextW(g_status, L"Готово!");
+            break;
+        }
+        case IDC_ED_MODEL_REFRESH:
+            refresh_model_combo();
+            SetWindowTextW(g_status, L"Список моделей обновлён");
+            break;
+        case IDC_MODELS_BACK:
+            show_templates();
+            break;
+        case IDC_MODELS_INSTALL: {
+            int sel = (int)SendMessageW(g_models_list, LB_GETCURSEL, 0, 0);
+            if (sel == LB_ERR || sel >= g_catalog_count) break;
+            const char *model_name = g_catalog[sel].name;
+            wchar_t msg[256];
+            swprintf(msg, 256, L"Установка %s ...", utf8w(model_name).c_str());
+            SetWindowTextW(g_models_progress, msg);
+            SetWindowTextW(g_status, L"Загрузка модели...");
+            std::string body = "{\"name\":\"" + std::string(model_name) + "\",\"stream\":false}";
+            http_post("/api/pull", body);
+            SetWindowTextW(g_models_progress, L"Готово!");
+            SetWindowTextW(g_status, L"Модель установлена!");
+            show_models();
+            break;
+        }
+        case IDC_FEMBOY_SAVE: {
+            wchar_t name[256];
+            GetWindowTextW(g_femboy_name_edit, name, 256);
+            if (wcslen(name) == 0) { MessageBoxW(w, L"Введите имя!", L"Ошибка", MB_OK); break; }
+            g_femboy_global_name = name;
+            g_femboy_name = name;
+            save_femboy();
+            update_nav(L"Настройки фембойчика", true, 1);
+            MessageBoxW(w, L"Имя сохранено глобально для всех шаблонов", L"OK", MB_OK);
+            break;
+        }
+        case IDC_MEM_ADD: {
+            int tag = (int)SendMessageW(g_mem_tag, CB_GETCURSEL, 0, 0);
+            if (tag == CB_ERR) break;
+            wchar_t key[512], val[1024];
+            GetWindowTextW(g_mem_key, key, 512);
+            GetWindowTextW(g_mem_val, val, 1024);
+            if (wcslen(key) == 0 || wcslen(val) == 0) break;
+            add_memory(tag, key, val);
+            refresh_mem_list();
+            SetWindowTextW(g_mem_key, L""); SetWindowTextW(g_mem_val, L"");
+            break;
+        }
+        case IDC_MEM_DEL: {
+            int sel = (int)SendMessageW(g_mem_list, LB_GETCURSEL, 0, 0);
+            if (sel == LB_ERR) break;
+            // Find actual index in g_memories
+            int real_idx = -1;
+            for (int i = 0, shown = 0; i < (int)g_memories.size(); i++) {
+                if (g_mem_filter_tag >= 0 && g_memories[i].tag != g_mem_filter_tag) continue;
+                if (shown == sel) { real_idx = i; break; }
+                shown++;
+            }
+            if (real_idx >= 0) {
+                delete_memory(real_idx);
+                refresh_mem_list();
+            }
+            break;
+        }
+        case IDC_MEM_SAVE:
+            save_memories();
+            SetWindowTextW(g_status, L"Память сохранена в global/memory.dat");
+            break;
+        case IDC_MEM_CLEAR:
+            g_mem_filter_tag = -1;
+            SendMessageW(g_mem_filter, CB_SETCURSEL, 0, 0);
+            refresh_mem_list();
+            break;
+        case IDC_MEM_BACK:
+            show_femboy();
+            break;
         }
         break;
 
     case WM_HSCROLL:
-        if ((HWND)lp == g_slider) {
-            int p = SendMessageW(g_slider, TBM_GETPOS, 0, 0);
-            g_temp = p / 10.0;
-            wchar_t ts[8];
-            swprintf(ts, 8, L"%.1f", g_temp);
-            SetWindowTextW(g_tempval, ts);
-        } else if ((HWND)lp == g_auto_slider) {
-            int p = SendMessageW(g_auto_slider, TBM_GETPOS, 0, 0);
-            g_auto_minutes = p;
-            wchar_t ts[8];
-            swprintf(ts, 8, L"%d", g_auto_minutes);
-            SetWindowTextW(g_auto_val, ts);
-            if (g_auto_on) {
-                KillTimer(w, ID_AUTO_TIMER);
-                SetTimer(w, ID_AUTO_TIMER, g_auto_minutes * 60000, NULL);
-            }
+        if ((HWND)lp == g_ed_temp_slider) {
+            int p = (int)SendMessageW(g_ed_temp_slider, TBM_GETPOS, 0, 0);
+            wchar_t ts[8]; swprintf(ts, 8, L"%.1f", p / 10.0);
+            SetWindowTextW(g_ed_temp_val, ts);
         }
         break;
 
-    case WM_TOK: {
-        wchar_t *tok = (wchar_t *)lp;
-        if (tok) {
-            int len = GetWindowTextLengthW(g_chat);
-            SendMessageW(g_chat, EM_SETSEL, len, len);
-            SendMessageW(g_chat, EM_REPLACESEL, FALSE, (LPARAM)tok);
-            SendMessageW(g_chat, EM_SCROLLCARET, 0, 0);
-            free(tok);
+    case WM_NOTIFY: {
+        LPNMHDR nm = (LPNMHDR)lp;
+        if (nm->idFrom == IDC_MEM_FILTER && nm->code == CBN_SELCHANGE) {
+            int sel = (int)SendMessageW(g_mem_filter, CB_GETCURSEL, 0, 0);
+            g_mem_filter_tag = (sel == 0) ? -1 : sel - 1;
+            refresh_mem_list();
         }
-        break;
-    }
-
-    case WM_DONE: {
-        wchar_t *reply = (wchar_t *)lp;
-        if (reply) {
-            g_hist.push_back({"assistant", w8utf(reply)});
-            if (g_hist.size() > 50) g_hist.erase(g_hist.begin());
-            free(reply);
-        }
-        EnableWindow(GetDlgItem(w, IDC_SEND), TRUE);
-        EnableWindow(GetDlgItem(w, IDC_STOP), FALSE);
-        tray_set_icon(w, g_hIconNormal);
-        break;
-    }
-
-    case WM_STAT: {
-        wchar_t *st = (wchar_t *)lp;
-        if (st) { SetWindowTextW(g_status, st); free(st); }
-        break;
-    }
-
-    case WM_SIZE: {
-        int W = LOWORD(lp), H = HIWORD(lp);
-        if (W < 200 || H < 200) break;
-        MoveWindow(g_chat, 10, 265, W - 20, H - 310, TRUE);
-        MoveWindow(g_input, 10, H - 50, W - 130, 25, TRUE);
-        MoveWindow(GetDlgItem(w, IDC_SEND), W - 115, H - 52, 55, 28, TRUE);
-        MoveWindow(GetDlgItem(w, IDC_STOP), W - 55, H - 52, 45, 28, TRUE);
-        MoveWindow(g_status, 10, H - 22, W - 20, 20, TRUE);
-        MoveWindow(g_trainlist, 10, 158, W - 20, 100, TRUE);
         break;
     }
 
     case WM_GETMINMAXINFO: {
         MINMAXINFO *mm = (MINMAXINFO *)lp;
-        mm->ptMinTrackSize.x = 650;
-        mm->ptMinTrackSize.y = 550;
+        mm->ptMinTrackSize.x = 900;
+        mm->ptMinTrackSize.y = 650;
         break;
     }
 
-    case WM_CLOSE:
-        ShowWindow(w, SW_HIDE);
-        return 0;
-
     case WM_DESTROY:
-        save_config();
-        KillTimer(w, ID_AUTO_TIMER);
-        Shell_NotifyIconW(NIM_DELETE, &g_nid);
         DeleteObject(g_font);
+        DeleteObject(g_font_big);
+        DeleteObject(g_font_title);
+        DeleteObject(g_font_nav);
+        DeleteObject(g_bg_brush);
+        DeleteObject(g_surface_brush);
+        DeleteObject(g_accent_brush);
         WSACleanup();
         PostQuitMessage(0);
         break;
@@ -879,23 +1017,26 @@ int WINAPI wWinMain(HINSTANCE hI, HINSTANCE hP, LPWSTR cL, int sH) {
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hI;
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-    wc.lpszClassName = L"GoidaAI";
+    wc.hbrBackground = NULL; // We paint ourselves
+    wc.lpszClassName = L"GoidaLauncher";
     RegisterClassExW(&wc);
 
     int sx = GetSystemMetrics(SM_CXSCREEN);
     int sy = GetSystemMetrics(SM_CYSCREEN);
-    HWND hwnd = CreateWindowExW(0, L"GoidaAI", L"GOIDA AI MANAGER",
-        WS_OVERLAPPEDWINDOW, (sx - 700) / 2, (sy - 650) / 2, 700, 650,
+    HWND hwnd = CreateWindowExW(0, L"GoidaLauncher", L"GOIDA AI MANAGER",
+        WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX|WS_CLIPCHILDREN,
+        (sx - 900) / 2, (sy - 650) / 2, 900, 650,
         NULL, NULL, hI, NULL);
     ShowWindow(hwnd, sH);
     UpdateWindow(hwnd);
 
     MSG msg;
     while (GetMessage(&msg, NULL, 0, 0)) {
-        if (msg.message == WM_KEYDOWN && msg.wParam == VK_RETURN && GetFocus() == g_input) {
-            do_send();
-            continue;
+        if (msg.message == WM_KEYDOWN && msg.wParam == VK_RETURN) {
+            if (g_page == 0) {
+                SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDC_LOGIN_BTN, BN_CLICKED), 0);
+                continue;
+            }
         }
         TranslateMessage(&msg);
         DispatchMessage(&msg);
