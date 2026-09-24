@@ -58,6 +58,7 @@ if(GOIDA_BUILD_TESTS)
     goida_add_test(test_utf8 tests/test_utf8.cpp)
     goida_add_test(test_i18n tests/test_i18n.cpp)
     goida_add_test(test_json tests/test_json.cpp)
+    goida_add_test(test_ollama_client tests/test_ollama_client.cpp)
     # test_db needs sqlite3.c
     add_executable(test_db tests/test_db.cpp src/sqlite3.c)
     target_include_directories(test_db PRIVATE src)
