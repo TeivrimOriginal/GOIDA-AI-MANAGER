@@ -38,6 +38,7 @@ inline std::wstring ApiBase(const std::wstring& api_url) {
 inline std::wstring BuildPullUrl(const std::wstring& api_url) { return ApiBase(api_url)+L"/pull"; }
 inline std::wstring BuildDeleteUrl(const std::wstring& api_url) { return ApiBase(api_url)+L"/delete"; }
 inline std::wstring BuildShowUrl(const std::wstring& api_url) { return ApiBase(api_url)+L"/show"; }
+inline std::wstring BuildEmbedUrl(const std::wstring& api_url) { return ApiBase(api_url)+L"/embed"; }
 inline std::wstring BuildTagsUrl(const std::wstring& api_url) { (void)api_url; return L"/api/tags"; }
 inline std::wstring BuildPsUrl(const std::wstring& api_url) { return ApiBase(api_url)+L"/ps"; }
 inline std::wstring BuildVersionUrl(const std::wstring& api_url) { return ApiBase(api_url)+L"/version"; }
