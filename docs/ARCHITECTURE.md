@@ -17,6 +17,10 @@
 - `raii.h` — `WinHttpHandle`, `Stmt`, `FileHandle`
 - `i18n.h` — `lang/ru.json` `lang/en.json` (UTF-8 BOM, 44 ключа)
 - `db_migration.h` — миграции 1..3
+- `json_helpers.h` — `goida::json::JEsc/JStr`, общие JSON-операции
+- `ollama_client.h` — `goida::ollama::ParseUrl/ApiBase/Build*Url`, единая валидация endpoint Ollama
+- `profiles.h` — `goida::profiles::Profile`, CRUD профилей, memory count, keep_alive L1/L2/L3
+
 
 ## Навигация
 Левая панель 198px (`COL_NAV`), кнопки `BS_OWNERDRAW`, `DrawBtn` (rounded `CreateRoundRectRgn` + `g_colAccent`), `WM_MOUSEMOVE` hover, `WM_TRAYICON` трей, `WM_SIZE` adaptive.
@@ -40,7 +44,10 @@
 - `WM_TRAYICON` двойной клик → Show, правый клик → меню
 
 ## Потоки
-WinHTTP (`winhttp.h`) `WinHttpOpen/Connect/OpenRequest/Send/Receive` с `WinHttpReadData` loop. Каждое API — отдельный `CreateThread` + `PostMessage` (`WM_HTTP_CHUNK`, `WM_HTTP_DONE`, `WM_HTTP_ERR`, `WM_MODEL_PROGRESS`, `WM_CONN_RESULT`, `WM_MODEL_LIST`, `WM_MODEL_EMBED_DONE`).
+WinHTTP (`winhttp.h`) `WinHttpOpen/Connect/OpenRequest/Send/Receive` с `WinHttpReadData` loop. URL для всех Ollama API проходит через `goida::ollama::ParseUrl`, endpoint строится через `ApiBase/Build*Url`. Каждое API — отдельный `CreateThread` + `PostMessage` (`WM_HTTP_CHUNK`, `WM_HTTP_DONE`, `WM_HTTP_ERR`, `WM_MODEL_PROGRESS`, `WM_CONN_RESULT`, `WM_MODEL_LIST`, `WM_MODEL_EMBED_DONE`).
 
 ## Отрисовка
 `WM_PAINT` заливает `COL_BG`, рисует `COL_NAV` панель, separator `COL_BORDER`, title `Segoe UI` `g_fontTitle`, статус-точка `CONN_OK green / FAIL red`.
+
+## Проверка
+`cmake -S . -B build -G "MinGW Makefiles"` → `cmake --build build` → `ctest --test-dir build --output-on-failure`. Автотесты: `test_utf8`, `test_i18n`, `test_json`, `test_ollama_client`, `test_db`, `unit_json`.
