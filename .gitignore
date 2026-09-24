@@ -1,0 +1,41 @@
+# build
+build/
+release/*.exe
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.so
+*.dylib
+*.pdb
+
+# exe at root kept ignored but allow release tracking via -f
+GOIDA.exe
+launcher.exe
+client.exe
+train_prompt.exe
+
+# local runtime data
+global/goida.db
+global/goida.db-*
+global/logs.txt
+global/memory.dat
+global/config.dat
+*.log
+
+# ide
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# os
+Thumbs.db
+.DS_Store
+
+# temp
+temp/
+*.tmp
+*.bak

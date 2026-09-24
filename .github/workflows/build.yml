@@ -1,0 +1,58 @@
+name: GOIDA Build
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja
+
+      - name: Configure CMake
+        shell: msys2 {0}
+        run: cmake -S . -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build GOIDA.exe
+        shell: msys2 {0}
+        run: cmake --build build --config Release
+
+      - name: Run tests
+        shell: msys2 {0}
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Prepare release
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          Copy-Item build/GOIDA.exe release/GOIDA.exe -Force
+          if (Test-Path build/test_utf8.exe) { Copy-Item build/*.exe release/ -Force -ErrorAction SilentlyContinue }
+          Get-ChildItem release | Format-Table Name,Length
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GOIDA-windows
+          path: |
+            release/GOIDA.exe
+            README.md
+            docs/
+            lang/
+
+      - name: Fallback bat test
+        shell: cmd
+        run: |
+          call build.bat
+          dir GOIDA.exe
+          dir build\GOIDA.exe
