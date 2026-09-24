@@ -17,6 +17,9 @@
 #include "raii.h"
 #include "i18n.h"
 #include "db_migration.h"
+#include "profiles.h"
+#include "json_helpers.h"
+#include "ollama_client.h"
 // httplib available as src/httplib.h вЂ” used via separate demo/build, keep lightweight include guard
 // #include "httplib.h" // uncomment to enable full httplib client (requires ws2_32 linkage)
 
@@ -232,162 +235,31 @@ struct Config {
 Config g_cfg;
 void UpdateAccent() { g_colAccent = AccentFromName(g_cfg.accent); }
 
-// ===== Profiles (Stage2) =====
-struct Profile {
-    std::wstring name;
-    std::wstring avatar;
-    std::wstring system_prompt;
-    float temp = 0.7f;
-    int max_tokens = 4096;
-    std::wstring keep_alive = L"5m"; // L1=5m, L2=30m, L3=1h/0
-};
+// ===== Profiles (Stage2) — модули src/profiles.h =====
+using Profile = goida::profiles::Profile;
+inline bool EnsureDefaultProfile() { return goida::profiles::EnsureDefaultProfile(g_db, g_cfg.f_name, g_cfg.sys_prompt, g_cfg.temp, g_cfg.max_tokens); }
+inline std::vector<Profile> LoadAllProfiles() { return goida::profiles::LoadAllProfiles(g_db); }
+inline bool SaveProfile(const Profile& p) { return goida::profiles::SaveProfile(g_db, p); }
+inline bool DeleteProfile(const std::wstring& name) { return goida::profiles::DeleteProfile(g_db, name); }
+inline int MemoryCount() { return goida::profiles::MemoryCount(g_db); }
+inline std::wstring KeepAliveFromLevel(int lvl) { return goida::profiles::KeepAliveFromLevel(lvl); }
+inline int LevelFromKeepAlive(const std::wstring& ka) { return goida::profiles::LevelFromKeepAlive(ka); }
+inline std::wstring GetActiveKeepAlive() { return goida::profiles::GetActiveKeepAlive(g_db); }
 
-inline bool EnsureDefaultProfile() {
-    // if profiles empty, create default from g_cfg femboy settings
-    goida::raii::Stmt cnt(DBPrep("SELECT COUNT(*) FROM profiles"));
-    if (!cnt) return false;
-    int c=0;
-    if (sqlite3_step(cnt.get())==SQLITE_ROW) c=sqlite3_column_int(cnt.get(),0);
-    if (c>0) return true;
-    // Create default profile "FemboyDefault" migrating femboy fields into system_prompt
-    std::wstring sys = g_cfg.sys_prompt;
-    if (sys.empty()) sys = L"You are a helpful AI assistant.";
-    // Embed femboy personality into system prompt for migration
-    std::wstring fem = L"Name: " + g_cfg.f_name + L", Voice: " + g_cfg.f_voice + L", Eyes: " + g_cfg.f_eyes;
-    std::wstring merged = sys + L" [" + fem + L"]";
-    goida::raii::Stmt ins(DBPrep("INSERT INTO profiles(name, avatar, system_prompt, temperature, max_tokens, keep_alive) VALUES(?1,?2,?3,?4,?5,?6)"));
-    if (!ins) return false;
-    std::string n = goida::utf8::w2utf8(g_cfg.f_name.empty()? L"default" : g_cfg.f_name);
-    std::string av = goida::utf8::w2utf8(L"");
-    std::string sp = goida::utf8::w2utf8(merged);
-    std::string ka = "5m";
-    sqlite3_bind_text(ins.get(),1,n.c_str(),-1,SQLITE_TRANSIENT);
-    sqlite3_bind_text(ins.get(),2,av.c_str(),-1,SQLITE_TRANSIENT);
-    sqlite3_bind_text(ins.get(),3,sp.c_str(),-1,SQLITE_TRANSIENT);
-    sqlite3_bind_double(ins.get(),4,g_cfg.temp);
-    sqlite3_bind_int(ins.get(),5,g_cfg.max_tokens);
-    sqlite3_bind_text(ins.get(),6,ka.c_str(),-1,SQLITE_TRANSIENT);
-    sqlite3_step(ins.get());
-    // Also ensure DB config active profile
-    DBSet(L"active_profile", g_cfg.f_name.empty()? L"default" : g_cfg.f_name.c_str());
-    return true;
-}
-
-inline std::vector<Profile> LoadAllProfiles() {
-    std::vector<Profile> out;
-    goida::raii::Stmt s(DBPrep("SELECT name, avatar, system_prompt, temperature, max_tokens, keep_alive FROM profiles ORDER BY created_at ASC"));
-    if (!s) return out;
-    while (sqlite3_step(s.get())==SQLITE_ROW) {
-        Profile p;
-        const char* n = (const char*)sqlite3_column_text(s.get(),0);
-        const char* av = (const char*)sqlite3_column_text(s.get(),1);
-        const char* sp = (const char*)sqlite3_column_text(s.get(),2);
-        p.temp = (float)sqlite3_column_double(s.get(),3);
-        p.max_tokens = sqlite3_column_int(s.get(),4);
-        const char* ka = (const char*)sqlite3_column_text(s.get(),5);
-        if (n) p.name = goida::utf8::utf8_to_w(n);
-        if (av) p.avatar = goida::utf8::utf8_to_w(av);
-        if (sp) p.system_prompt = goida::utf8::utf8_to_w(sp);
-        if (ka) p.keep_alive = goida::utf8::utf8_to_w(ka);
-        out.push_back(p);
-    }
-    return out;
-}
-
-inline bool SaveProfile(const Profile& p) {
-    goida::raii::Stmt s(DBPrep("INSERT OR REPLACE INTO profiles(name, avatar, system_prompt, temperature, max_tokens, keep_alive, updated_at) VALUES(?1,?2,?3,?4,?5,?6, datetime('now','localtime'))"));
-    if (!s) return false;
-    std::string n = goida::utf8::w2utf8(p.name);
-    std::string av = goida::utf8::w2utf8(p.avatar);
-    std::string sp = goida::utf8::w2utf8(p.system_prompt);
-    std::string ka = goida::utf8::w2utf8(p.keep_alive);
-    sqlite3_bind_text(s.get(),1,n.c_str(),-1,SQLITE_TRANSIENT);
-    sqlite3_bind_text(s.get(),2,av.c_str(),-1,SQLITE_TRANSIENT);
-    sqlite3_bind_text(s.get(),3,sp.c_str(),-1,SQLITE_TRANSIENT);
-    sqlite3_bind_double(s.get(),4,p.temp);
-    sqlite3_bind_int(s.get(),5,p.max_tokens);
-    sqlite3_bind_text(s.get(),6,ka.c_str(),-1,SQLITE_TRANSIENT);
-    return sqlite3_step(s.get())==SQLITE_DONE;
-}
-
-inline bool DeleteProfile(const std::wstring& name) {
-    goida::raii::Stmt s(DBPrep("DELETE FROM profiles WHERE name=?1"));
-    if (!s) return false;
-    std::string n = goida::utf8::w2utf8(name);
-    sqlite3_bind_text(s.get(),1,n.c_str(),-1,SQLITE_TRANSIENT);
-    return sqlite3_step(s.get())==SQLITE_DONE;
-}
-
-inline int MemoryCount() {
-    goida::raii::Stmt s(DBPrep("SELECT COUNT(*) FROM memory"));
-    if (!s) return 0;
-    if (sqlite3_step(s.get())==SQLITE_ROW) return sqlite3_column_int(s.get(),0);
-    return 0;
-}
-
-// keep_alive L1/L2/L3 mapping helpers
-inline std::wstring KeepAliveFromLevel(int lvl) {
-    if (lvl==1) return L"5m";
-    if (lvl==2) return L"30m";
-    if (lvl==3) return L"1h";
-    return L"5m";
-}
-inline int LevelFromKeepAlive(const std::wstring& ka) {
-    if (ka==L"5m") return 1;
-    if (ka==L"30m") return 2;
-    if (ka==L"1h" || ka==L"60m") return 3;
-    if (ka==L"0" || ka==L"none") return 0;
-    return 1;
-}
-inline std::wstring GetActiveKeepAlive() {
-    std::wstring active = DBGet(L"active_profile", L"");
-    if (active.empty()) return L"5m";
-    goida::raii::Stmt s(DBPrep("SELECT keep_alive FROM profiles WHERE name=?1"));
-    if (!s) return L"5m";
-    std::string n = goida::utf8::w2utf8(active);
-    sqlite3_bind_text(s.get(),1,n.c_str(),-1,SQLITE_TRANSIENT);
-    if (sqlite3_step(s.get())==SQLITE_ROW) {
-        const char* ka = (const char*)sqlite3_column_text(s.get(),0);
-        if (ka) return goida::utf8::utf8_to_w(ka);
-    }
-    return L"5m";
-}
-
-// ===== JSON helpers =====
-std::wstring JEsc(const std::wstring& s) {
-    std::wstring r; for (wchar_t c : s) {
-        if (c == L'"') r += L"\\\""; else if (c == L'\\') r += L"\\\\";
-        else if (c == L'\n') r += L"\\n"; else if (c == L'\r') r += L"\\r";
-        else if (c == L'\t') r += L"\\t"; else r += c; }
-    return r;
-}
-std::wstring JStr(const std::wstring& j, const std::wstring& k) {
-    std::wstring s = L"\"" + k + L"\":\""; auto p = j.find(s); if (p == std::wstring::npos) return L"";
-    p += s.size(); std::wstring v;
-    while (p < j.size()) { if (j[p] == L'"' && (p == 0 || j[p-1] != L'\\')) break;
-        if (j[p] == L'\\' && p+1 < j.size()) {
-            if (j[p+1] == L'n') { v += L'\n'; p += 2; } else if (j[p+1] == L'r') { v += L'\r'; p += 2; }
-            else if (j[p+1] == L't') { v += L'\t'; p += 2; } else if (j[p+1] == L'"') { v += L'"'; p += 2; }
-            else if (j[p+1] == L'\\') { v += L'\\'; p += 2; } else { v += j[p]; p++; }
-        } else { v += j[p]; p++; } }
-    return v;
-}
+// ===== JSON helpers — модуль src/json_helpers.h =====
+inline std::wstring JEsc(const std::wstring& s) { return goida::json::JEsc(s); }
+inline std::wstring JStr(const std::wstring& j, const std::wstring& k) { return goida::json::JStr(j,k); }
 
 struct HttpD { std::wstring url, body; HWND hwnd; int stream; };
 
 DWORD WINAPI HttpThr(LPVOID lp) {
-    HttpD* d = (HttpD*)lp; bool https = (d->url.find(L"https://") == 0);
-    std::wstring host, path; int port = https ? 443 : 80;
-    size_t s = d->url.find(L"://"); if (s == std::wstring::npos) { PostMessage(d->hwnd, WM_HTTP_ERR, 0, (LPARAM)new std::wstring(L"ERR:url")); delete d; return 0; }
-    size_t st = s + 3, sl = d->url.find(L'/', st);
-    std::wstring hp = (sl == std::wstring::npos) ? d->url.substr(st) : d->url.substr(st, sl - st);
-    path = (sl == std::wstring::npos) ? L"/" : d->url.substr(sl); size_t co = hp.find(L':');
-    if (co != std::wstring::npos) { host = hp.substr(0, co); port = _wtoi(hp.substr(co+1).c_str()); } else host = hp;
+    HttpD* d = (HttpD*)lp; auto parts = goida::ollama::ParseUrl(d->url);
+    if (!parts.ok) { PostMessage(d->hwnd, WM_HTTP_ERR, 0, (LPARAM)new std::wstring(L"ERR:url")); delete d; return 0; }
     HINTERNET hs = WinHttpOpen(L"GOIDA/2.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, NULL, NULL, 0);
     if (!hs) { PostMessage(d->hwnd, WM_HTTP_ERR, 0, (LPARAM)new std::wstring(L"ERR:session")); delete d; return 0; }
-    HINTERNET hc = WinHttpConnect(hs, host.c_str(), (INTERNET_PORT)port, 0);
+    HINTERNET hc = WinHttpConnect(hs, parts.host.c_str(), (INTERNET_PORT)parts.port, 0);
     if (!hc) { WinHttpCloseHandle(hs); PostMessage(d->hwnd, WM_HTTP_ERR, 0, (LPARAM)new std::wstring(L"ERR:connect")); delete d; return 0; }
-    HINTERNET hr = WinHttpOpenRequest(hc, L"POST", path.c_str(), NULL, NULL, NULL, https ? WINHTTP_FLAG_SECURE : 0);
+    HINTERNET hr = WinHttpOpenRequest(hc, L"POST", parts.path.c_str(), NULL, NULL, NULL, parts.https ? WINHTTP_FLAG_SECURE : 0);
     if (!hr) { WinHttpCloseHandle(hc); WinHttpCloseHandle(hs); PostMessage(d->hwnd, WM_HTTP_ERR, 0, (LPARAM)new std::wstring(L"ERR:req")); delete d; return 0; }
     WinHttpSetTimeouts(hr, 30000, 30000, 30000, 30000);
     std::string utf8; int l = WideCharToMultiByte(CP_UTF8, 0, d->body.c_str(), (int)d->body.size(), NULL, 0, NULL, NULL);
@@ -436,22 +308,16 @@ done:
     delete d; return 0;
 }
 
-// ===== Connection check =====
+// ===== Connection check — via src/ollama_client.h =====
 DWORD WINAPI ConnCheckThr(LPVOID lp) {
     HWND hwnd = (HWND)lp;
-    std::wstring url = g_cfg.api_url;
-    bool https = (url.find(L"https://") == 0);
-    std::wstring host; int port = https ? 443 : 80;
-    size_t s = url.find(L"://"); if (s == std::wstring::npos) { PostMessage(hwnd, WM_CONN_RESULT, CONN_FAIL, 0); return 0; }
-    size_t st = s + 3, sl = url.find(L'/', st);
-    std::wstring hp = (sl == std::wstring::npos) ? url.substr(st) : url.substr(st, sl - st);
-    size_t co = hp.find(L':');
-    if (co != std::wstring::npos) { host = hp.substr(0, co); port = _wtoi(hp.substr(co+1).c_str()); } else host = hp;
+    auto parts = goida::ollama::ParseUrl(g_cfg.api_url);
+    if (!parts.ok) { PostMessage(hwnd, WM_CONN_RESULT, CONN_FAIL, 0); return 0; }
     HINTERNET hs = WinHttpOpen(L"GOIDA/2.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, NULL, NULL, 0);
     if (!hs) { PostMessage(hwnd, WM_CONN_RESULT, CONN_FAIL, 0); return 0; }
-    HINTERNET hc = WinHttpConnect(hs, host.c_str(), (INTERNET_PORT)port, 0);
+    HINTERNET hc = WinHttpConnect(hs, parts.host.c_str(), (INTERNET_PORT)parts.port, 0);
     if (!hc) { WinHttpCloseHandle(hs); PostMessage(hwnd, WM_CONN_RESULT, CONN_FAIL, 0); return 0; }
-    HINTERNET hr = WinHttpOpenRequest(hc, L"GET", L"/api/tags", NULL, NULL, NULL, https ? WINHTTP_FLAG_SECURE : 0);
+    HINTERNET hr = WinHttpOpenRequest(hc, L"GET", L"/api/tags", NULL, NULL, NULL, parts.https ? WINHTTP_FLAG_SECURE : 0);
     if (!hr) { WinHttpCloseHandle(hc); WinHttpCloseHandle(hs); PostMessage(hwnd, WM_CONN_RESULT, CONN_FAIL, 0); return 0; }
     WinHttpSetTimeouts(hr, 5000, 5000, 5000, 5000);
     bool ok = false;
@@ -468,22 +334,16 @@ DWORD WINAPI ConnCheckThr(LPVOID lp) {
     return 0;
 }
 
-// ===== Model list fetch =====
+// ===== Model list fetch — via src/ollama_client.h =====
 DWORD WINAPI ModelListThr(LPVOID lp) {
     HWND hwnd = (HWND)lp;
-    std::wstring url = g_cfg.api_url;
-    bool https = (url.find(L"https://") == 0);
-    std::wstring host; int port = https ? 443 : 80;
-    size_t s = url.find(L"://"); if (s == std::wstring::npos) return 0;
-    size_t st = s + 3, sl = url.find(L'/', st);
-    std::wstring hp = (sl == std::wstring::npos) ? url.substr(st) : url.substr(st, sl - st);
-    size_t co = hp.find(L':');
-    if (co != std::wstring::npos) { host = hp.substr(0, co); port = _wtoi(hp.substr(co+1).c_str()); } else host = hp;
+    auto parts = goida::ollama::ParseUrl(g_cfg.api_url);
+    if (!parts.ok) return 0;
     HINTERNET hs = WinHttpOpen(L"GOIDA/2.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, NULL, NULL, 0);
     if (!hs) return 0;
-    HINTERNET hc = WinHttpConnect(hs, host.c_str(), (INTERNET_PORT)port, 0);
+    HINTERNET hc = WinHttpConnect(hs, parts.host.c_str(), (INTERNET_PORT)parts.port, 0);
     if (!hc) { WinHttpCloseHandle(hs); return 0; }
-    HINTERNET hr = WinHttpOpenRequest(hc, L"GET", L"/api/tags", NULL, NULL, NULL, https ? WINHTTP_FLAG_SECURE : 0);
+    HINTERNET hr = WinHttpOpenRequest(hc, L"GET", L"/api/tags", NULL, NULL, NULL, parts.https ? WINHTTP_FLAG_SECURE : 0);
     if (!hr) { WinHttpCloseHandle(hc); WinHttpCloseHandle(hs); return 0; }
     WinHttpSetTimeouts(hr, 5000, 5000, 5000, 5000);
     std::string resp;
