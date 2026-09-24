@@ -21,6 +21,7 @@
 - `ollama_client.h` — `goida::ollama::ParseUrl/ApiBase/Build*Url`, единая валидация endpoint Ollama
 - `profiles.h` — `goida::profiles::Profile`, CRUD профилей, memory count, keep_alive L1/L2/L3
 - `db.h` — `DBInit/DBExec/DBPrep/DBGet/DBSet/DBLog`, единый SQLite access layer
+- `config.h` — `Config` и сохранение пользовательских настроек через `DBGet/DBSet`
 
 
 ## Навигация
