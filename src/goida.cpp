@@ -593,17 +593,12 @@ DWORD WINAPI CopyModelThr(LPVOID lp) {
     HWND hwnd = (HWND)lp;
     wchar_t src[256], dst[256]; GetDlgItemText(hwnd, ID_MODEL_NAME, src, 256); GetDlgItemText(hwnd, ID_MODEL_DST, dst, 256);
     if (src[0]==0||dst[0]==0) { PostMessage(hwnd, WM_HTTP_ERR,0,(LPARAM)new std::wstring(L"Need source & destination")); return 0; }
-    std::wstring url = g_cfg.api_url; size_t sp = url.rfind('/'); if (sp!=std::wstring::npos) url = url.substr(0,sp);
-    url += L"/copy"; bool https = (url.find(L"https://")==0);
-    std::wstring host,path; int port = https?443:80;
-    size_t s = url.find(L"://"); if (s==std::wstring::npos) return 0;
-    size_t st=s+3,sl=url.find(L'/',st); std::wstring hp = (sl==std::wstring::npos)?url.substr(st):url.substr(st,sl-st);
-    path = (sl==std::wstring::npos)?L"/":url.substr(sl); size_t co=hp.find(L':');
-    if (co!=std::wstring::npos){host=hp.substr(0,co);port=_wtoi(hp.substr(co+1).c_str());}else host=hp;
+    auto parts = goida::ollama::ParseUrl(goida::ollama::ApiBase(g_cfg.api_url) + L"/copy");
+    if (!parts.ok) return 0;
     HINTERNET hs=WinHttpOpen(L"GOIDA/2.0",WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,NULL,NULL,0);
-    if(!hs)return 0; HINTERNET hc=WinHttpConnect(hs,host.c_str(),(INTERNET_PORT)port,0);
+    if(!hs)return 0; HINTERNET hc=WinHttpConnect(hs,parts.host.c_str(),(INTERNET_PORT)parts.port,0);
     if(!hc){WinHttpCloseHandle(hs);return 0;}
-    HINTERNET hr=WinHttpOpenRequest(hc,L"POST",path.c_str(),NULL,NULL,NULL,https?WINHTTP_FLAG_SECURE:0);
+    HINTERNET hr=WinHttpOpenRequest(hc,L"POST",parts.path.c_str(),NULL,NULL,NULL,parts.https?WINHTTP_FLAG_SECURE:0);
     if(!hr){WinHttpCloseHandle(hc);WinHttpCloseHandle(hs);return 0;}
     WinHttpSetTimeouts(hr,10000,10000,10000,10000);
     std::string s1,s2; int wl;
@@ -626,17 +621,12 @@ DWORD WINAPI CreateModelThr(LPVOID lp) {
     HWND hwnd = (HWND)lp;
     wchar_t model[256], from[256]; GetDlgItemText(hwnd, ID_MODEL_NAME, model, 256); GetDlgItemText(hwnd, ID_MODEL_DST, from, 256);
     if (model[0]==0) { PostMessage(hwnd, WM_HTTP_ERR,0,(LPARAM)new std::wstring(L"Need model name")); return 0; }
-    std::wstring url = g_cfg.api_url; size_t sp = url.rfind('/'); if (sp!=std::wstring::npos) url = url.substr(0,sp);
-    url += L"/create"; bool https = (url.find(L"https://")==0);
-    std::wstring host,path; int port = https?443:80;
-    size_t s = url.find(L"://"); if (s==std::wstring::npos) return 0;
-    size_t st=s+3,sl=url.find(L'/',st); std::wstring hp = (sl==std::wstring::npos)?url.substr(st):url.substr(st,sl-st);
-    path = (sl==std::wstring::npos)?L"/":url.substr(sl); size_t co=hp.find(L':');
-    if (co!=std::wstring::npos){host=hp.substr(0,co);port=_wtoi(hp.substr(co+1).c_str());}else host=hp;
+    auto parts = goida::ollama::ParseUrl(goida::ollama::ApiBase(g_cfg.api_url) + L"/create");
+    if (!parts.ok) return 0;
     HINTERNET hs=WinHttpOpen(L"GOIDA/2.0",WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,NULL,NULL,0);
-    if(!hs)return 0; HINTERNET hc=WinHttpConnect(hs,host.c_str(),(INTERNET_PORT)port,0);
+    if(!hs)return 0; HINTERNET hc=WinHttpConnect(hs,parts.host.c_str(),(INTERNET_PORT)parts.port,0);
     if(!hc){WinHttpCloseHandle(hs);return 0;}
-    HINTERNET hr=WinHttpOpenRequest(hc,L"POST",path.c_str(),NULL,NULL,NULL,https?WINHTTP_FLAG_SECURE:0);
+    HINTERNET hr=WinHttpOpenRequest(hc,L"POST",parts.path.c_str(),NULL,NULL,NULL,parts.https?WINHTTP_FLAG_SECURE:0);
     if(!hr){WinHttpCloseHandle(hc);WinHttpCloseHandle(hs);return 0;}
     WinHttpSetTimeouts(hr,120000,120000,120000,120000);
     std::string s1,s2; int wl;
@@ -708,17 +698,12 @@ DWORD WINAPI PushModelThr(LPVOID lp) {
 // ===== List running models =====
 DWORD WINAPI RunningThr(LPVOID lp) {
     HWND hwnd = (HWND)lp;
-    std::wstring url = g_cfg.api_url; size_t sp = url.rfind('/'); if (sp!=std::wstring::npos) url = url.substr(0,sp);
-    url += L"/ps"; bool https = (url.find(L"https://")==0);
-    std::wstring host,path; int port = https?443:80;
-    size_t s = url.find(L"://"); if (s==std::wstring::npos) return 0;
-    size_t st=s+3,sl=url.find(L'/',st); std::wstring hp = (sl==std::wstring::npos)?url.substr(st):url.substr(st,sl-st);
-    path = (sl==std::wstring::npos)?L"/":url.substr(sl); size_t co=hp.find(L':');
-    if (co!=std::wstring::npos){host=hp.substr(0,co);port=_wtoi(hp.substr(co+1).c_str());}else host=hp;
+    auto parts = goida::ollama::ParseUrl(goida::ollama::BuildPsUrl(g_cfg.api_url));
+    if (!parts.ok) return 0;
     HINTERNET hs=WinHttpOpen(L"GOIDA/2.0",WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,NULL,NULL,0);
-    if(!hs)return 0; HINTERNET hc=WinHttpConnect(hs,host.c_str(),(INTERNET_PORT)port,0);
+    if(!hs)return 0; HINTERNET hc=WinHttpConnect(hs,parts.host.c_str(),(INTERNET_PORT)parts.port,0);
     if(!hc){WinHttpCloseHandle(hs);return 0;}
-    HINTERNET hr=WinHttpOpenRequest(hc,L"GET",path.c_str(),NULL,NULL,NULL,https?WINHTTP_FLAG_SECURE:0);
+    HINTERNET hr=WinHttpOpenRequest(hc,L"GET",parts.path.c_str(),NULL,NULL,NULL,parts.https?WINHTTP_FLAG_SECURE:0);
     if(!hr){WinHttpCloseHandle(hc);WinHttpCloseHandle(hs);return 0;}
     WinHttpSetTimeouts(hr,5000,5000,5000,5000);
     std::string resp;
@@ -742,17 +727,12 @@ DWORD WINAPI RunningThr(LPVOID lp) {
 std::wstring g_srvVersion = L"unknown";
 DWORD WINAPI VersionThr(LPVOID lp) {
     HWND hwnd = (HWND)lp;
-    std::wstring url = g_cfg.api_url; size_t sp = url.rfind('/'); if (sp!=std::wstring::npos) url = url.substr(0,sp);
-    url += L"/version"; bool https = (url.find(L"https://")==0);
-    std::wstring host,path; int port = https?443:80;
-    size_t s = url.find(L"://"); if (s==std::wstring::npos) return 0;
-    size_t st=s+3,sl=url.find(L'/',st); std::wstring hp = (sl==std::wstring::npos)?url.substr(st):url.substr(st,sl-st);
-    path = (sl==std::wstring::npos)?L"/":url.substr(sl); size_t co=hp.find(L':');
-    if (co!=std::wstring::npos){host=hp.substr(0,co);port=_wtoi(hp.substr(co+1).c_str());}else host=hp;
+    auto parts = goida::ollama::ParseUrl(goida::ollama::BuildVersionUrl(g_cfg.api_url));
+    if (!parts.ok) return 0;
     HINTERNET hs=WinHttpOpen(L"GOIDA/2.0",WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,NULL,NULL,0);
-    if(!hs)return 0; HINTERNET hc=WinHttpConnect(hs,host.c_str(),(INTERNET_PORT)port,0);
+    if(!hs)return 0; HINTERNET hc=WinHttpConnect(hs,parts.host.c_str(),(INTERNET_PORT)parts.port,0);
     if(!hc){WinHttpCloseHandle(hs);return 0;}
-    HINTERNET hr=WinHttpOpenRequest(hc,L"GET",path.c_str(),NULL,NULL,NULL,https?WINHTTP_FLAG_SECURE:0);
+    HINTERNET hr=WinHttpOpenRequest(hc,L"GET",parts.path.c_str(),NULL,NULL,NULL,parts.https?WINHTTP_FLAG_SECURE:0);
     if(!hr){WinHttpCloseHandle(hc);WinHttpCloseHandle(hs);return 0;}
     WinHttpSetTimeouts(hr,5000,5000,5000,5000); std::string resp;
     if(WinHttpSendRequest(hr,WINHTTP_NO_ADDITIONAL_HEADERS,0,NULL,0,0,0)&&WinHttpReceiveResponse(hr,NULL)){
