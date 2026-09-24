@@ -23,6 +23,7 @@ int main() {
     assert(goida::ollama::BuildShowUrl(L"http://localhost:11434/api/chat") == L"http://localhost:11434/api/show");
     assert(goida::ollama::BuildEmbedUrl(L"http://localhost:11434/api/chat") == L"http://localhost:11434/api/embed");
     assert(goida::ollama::BuildPsUrl(L"http://localhost:11434/api/chat") == L"http://localhost:11434/api/ps");
+    assert(goida::ollama::BuildVersionUrl(L"http://localhost:11434/api/chat/") == L"http://localhost:11434/api/version");
     assert(goida::ollama::BuildVersionUrl(L"http://localhost:11434/api/chat") == L"http://localhost:11434/api/version");
 
     std::cout << "ollama client ok\n";

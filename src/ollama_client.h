@@ -30,9 +30,11 @@ inline UrlParts ParseUrl(const std::wstring& url) {
 }
 
 inline std::wstring ApiBase(const std::wstring& api_url) {
-    size_t sp = api_url.rfind(L'/');
-    if (sp!=std::wstring::npos) return api_url.substr(0, sp);
-    return api_url;
+    std::wstring url = api_url;
+    while (url.size() > 1 && url.back() == L'/') url.pop_back();
+    size_t sp = url.rfind('/');
+    if (sp != std::wstring::npos) return url.substr(0, sp);
+    return url;
 }
 
 inline std::wstring BuildPullUrl(const std::wstring& api_url) { return ApiBase(api_url)+L"/pull"; }
