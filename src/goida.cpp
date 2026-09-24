@@ -1451,7 +1451,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     sqlite3_bind_text(s, 1, r, -1, SQLITE_TRANSIENT);
                     sqlite3_bind_text(s, 2, c, -1, SQLITE_TRANSIENT);
                     sqlite3_step(s); sqlite3_reset(s);
-                } sqlite3_finalize(s); AppendChat(L"--- Chat saved to DB ---\n"); }
+                } sqlite3_finalize(s);
+                DBExec("DELETE FROM chat_messages WHERE id NOT IN (SELECT id FROM chat_messages ORDER BY id DESC LIMIT 100)");
+                AppendChat(L"--- Chat saved to DB ---\n"); }
             }
             else if (id == ID_CHAT_LOAD) {
                 SetDlgItemText(hWnd, ID_CHAT_HIST, L""); g_history.clear(); g_history.push_back({L"system", L"You are a helpful AI assistant."});
